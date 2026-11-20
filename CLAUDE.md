@@ -31,12 +31,16 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
 - **Fails closed.** Without the KV binding or secrets the chat refuses; spend is capped per day across
   the site (`DAILY_BUDGET_USD`) and priced per call (`PRICES` in `worker/limits.js`; a model with no
   price is refused).
+- **The steward's page is behind Cloudflare Access** (Jason, 2026-11-20). `worker/admin.js` verifies the
+  Access JWT on every `/api/admin/*` request (`worker/access.js`, from Siren); never trust the plain
+  email header, and never add a password or token sign-in beside it. Off (404) without
+  `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`.
 - **Keep these projects separate unless Jason links them:** Ghent Streets (Jason, 2026-11-20).
 
 ## Layout
 
 - `model/` the engine model (Node and browser), its driver and generated results.
-- `worker/` the Worker: `index.js` (routes, limits, headers), `agent.js` (the tool loop, the system
+- `worker/` the Worker: `index.js` (routes, limits, headers), `admin.js` and `access.js` (the steward's page), `agent.js` (the tool loop, the system
   prompt), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
   2026-11-20), `invites.js` and `limits.js` (adapted from Siren's, MIT).
 - `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers and case

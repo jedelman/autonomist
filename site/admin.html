@@ -1,0 +1,25 @@
+---
+title: Steward · autonomist
+description: The steward's page.
+---
+<h1>Steward</h1>
+<div id="status" role="status"></div>
+<div id="panel" hidden>
+  <h2>Make an invite</h2>
+  <form id="mint" class="tool">
+    <label>Who it's for (a label only you see)<input name="label" maxlength="120" required></label>
+    <label>Browsers it works in<input name="uses" type="number" min="1" max="50" value="3"></label>
+    <div><button type="submit">Make a code</button></div>
+  </form>
+  <div id="minted" class="note" hidden></div>
+  <h2>Access requests</h2>
+  <ul id="requests" class="cards"></ul>
+  <h2>Invites</h2>
+  <div id="invites"></div>
+  <h2>Case-study proposals</h2>
+  <div id="proposals"></div>
+  <p class="muted" id="who"></p>
+  <p><a href="/cdn-cgi/access/logout">Sign out of Cloudflare Access</a></p>
+</div>
+<script src="/js/tools/common.js"></script>
+<script src="/js/admin.js"></script>

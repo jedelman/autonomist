@@ -40,6 +40,12 @@ INVITE_REQUIRED = "true"
 binding = "KV"
 id = "9f7312ae8d65430cbd61411205e6359d"
 
+# The steward's page (/admin/), behind Cloudflare Access. Set in the dashboard (kept on deploy):
+#   ACCESS_TEAM_DOMAIN  your team's domain, e.g. "<team>.cloudflareaccess.com"
+#   ACCESS_AUD          the Access application's Audience (AUD) tag
+#   ADMIN_EMAILS        optional, comma-separated: only these Access identities may act
+# Until the first two are set, /admin and /api/admin answer 404.
+
 # Secrets (never in this file):
 #   npx wrangler secret put ANTHROPIC_API_KEY
 #   npx wrangler secret put INVITE_SECRET   # any long random string; signs invite cookies

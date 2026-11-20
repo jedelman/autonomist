@@ -1,0 +1,21 @@
+{
+  "name": "autonomist",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An AI organizer for an autonomous cooperative federation. A public-interest project.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "model": "node model/run.mjs",
+    "test": "node --test test/*.test.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.4.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.40.0"
+  }
+}

@@ -1,0 +1,57 @@
+# autonomist: the site, the chat agent and saved results, as one Worker.
+# Deploy: `npx wrangler deploy` (runs the build first). Local: `npx wrangler dev`.
+name = "autonomist"
+main = "worker/index.js"
+compatibility_date = "2026-09-01"
+account_id = "543fde7feabd0af945bfae926ceea7ad"
+# Keep variables set in the dashboard that this file doesn't list, so a deploy never wipes one
+# entered there as plain text. (Secrets are always kept.)
+keep_vars = true
+
+# The site is built into public/ before every deploy (scripts/build.mjs).
+[build]
+command = "node scripts/build.mjs"
+
+# Static pages are served through the Worker so every response gets the same security headers.
+[assets]
+directory = "public"
+binding = "ASSETS"
+run_worker_first = true
+not_found_handling = "404-page"
+
+[vars]
+PUBLIC_ORIGIN = "https://autonomist.jason-edelman.org"
+MODEL = "claude-haiku-5-5"
+EFFORT = "high"
+MAX_STEPS = "6"
+MAX_TOKENS = "8000"
+# Questions per invite per UTC day, and the whole site's model spend per UTC day (USD).
+PER_INVITE_DAILY = "30"
+DAILY_BUDGET_USD = "3"
+# Outside requests (the data portal) per answer.
+SUBREQUEST_BUDGET = "40"
+# The chat is invite-only unless this is "false".
+INVITE_REQUIRED = "true"
+
+# Storage for invites, the access-request list, limits, spend, saved results and case-study
+# proposals. Created by Jason 2026-11-20. Without it the site still serves pages, but the chat
+# refuses (it fails closed).
+[[kv_namespaces]]
+binding = "KV"
+id = "9f7312ae8d65430cbd61411205e6359d"
+
+# Secrets (never in this file):
+#   npx wrangler secret put ANTHROPIC_API_KEY
+#   npx wrangler secret put INVITE_SECRET   # any long random string; signs invite cookies
+#   npx wrangler secret put IP_SALT         # any random string; hashes visitors for limits
+
+# The hostname. Either add autonomist.jason-edelman.org as a Custom Domain on this Worker in the
+# Cloudflare dashboard (Workers > autonomist > Settings > Domains), or uncomment this so deploys
+# create it (needs no existing DNS record for the name):
+# routes = [{ pattern = "autonomist.jason-edelman.org", custom_domain = true }]
+
+# Console output only: no invocation logs (they would carry request URLs and headers).
+[observability]
+enabled = true
+[observability.logs]
+invocation_logs = false

@@ -1,0 +1,27 @@
+---
+title: Could we buy it?
+summary: Run a building's numbers across four ways of paying for it, from a commons stack to a bank loan, and see what coordination is worth.
+order: 2
+---
+<h1>Could we buy it?</h1>
+<p class="lede">The same building, four ways of paying for it. The question is whether the building's income covers each one's loan payments, how much cash each needs up front, and how much each could afford to pay.</p>
+<form class="tool" id="f">
+  <label>Homes<input name="units" type="number" min="1" step="1" value="8" required></label>
+  <label>Price ($)<input name="price" type="number" min="10000" step="1000" value="2400000" required></label>
+  <label>Net operating income a year ($)<input name="noi" type="number" min="0" step="100" placeholder="if known"></label>
+  <label>…or the cap rate (%)<input name="cap" type="number" min="0.5" max="25" step="0.01" value="6.27"></label>
+  <label>Repairs to fund at purchase ($)<input name="repairs" type="number" min="0" step="1000" value="40000"></label>
+  <div><button type="submit">Run it</button></div>
+</form>
+<div class="out" id="out" aria-live="polite"></div>
+<h2>The four ways</h2>
+<ul>
+  <li><strong>Commons:</strong> senior notes from allies, 70% at 5% over 30 years; solidarity money, 20% at 2% interest-only; members, 10%.</li>
+  <li><strong>Community lender:</strong> 80% at 6% over 30 years, plus a note from the seller for 15% at 3% over 20 years; 5% equity.</li>
+  <li><strong>Patient lender:</strong> 90% at 2% over 40 years; 10% equity.</li>
+  <li><strong>Bank:</strong> 75% at 7% over 30 years; 25% equity. This is how a typical private buyer finances a building.</li>
+</ul>
+<p>All terms are scenarios, not offers. "Covers payments" is the building's income divided by the loan payments; lenders usually want 1.15 to 1.25. "Could pay" is the total cost (price plus repairs) that keeps that ratio at 1.15. The design behind the commons stack is in <a href="/model/the-engine/">The engine</a>.</p>
+<script src="/js/lec-core.js"></script>
+<script src="/js/tools/common.js"></script>
+<script src="/js/tools/could-we-buy-it.js"></script>

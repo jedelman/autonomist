@@ -1,0 +1,33 @@
+---
+title: What the asking price means for rent
+summary: For tenants. Enter a listing's price and income; see what a buyer at that price would need the building to earn, and the price that works on today's income.
+order: 1
+---
+<h1>What the asking price means for rent</h1>
+<p class="lede">When a building is listed for sale, its price says something about what the next owner will need from it. This tool works that out from two numbers on the listing.</p>
+<form class="tool" id="f">
+  <label>Asking price ($)<input name="price" type="number" min="10000" step="1000" value="1900000" required></label>
+  <label>Net operating income a year ($)<input name="noi" type="number" min="0" step="100" placeholder="from the listing"></label>
+  <label>…or the cap rate (%)<input name="cap" type="number" min="0.5" max="25" step="0.01" value="5.52"></label>
+  <details class="advanced"><summary>Loan terms (ordinary bank terms by default)</summary><div class="grid">
+    <label>Loan share of price (%)<input name="ltv" type="number" min="30" max="95" step="1" value="75"></label>
+    <label>Interest rate (%)<input name="rate" type="number" min="1" max="15" step="0.05" value="7"></label>
+    <label>Loan term (years)<input name="years" type="number" min="5" max="40" step="1" value="30"></label>
+    <label>Lender wants income to cover payments (×)<input name="dscr" type="number" min="1" max="2" step="0.01" value="1.25"></label>
+    <label>Operating costs as a share of rent (%)<input name="cost" type="number" min="10" max="70" step="1" value="40"></label>
+  </div></details>
+  <div><button type="submit">Work it out</button></div>
+</form>
+<div class="out" id="out" aria-live="polite"></div>
+<h2>How to read it</h2>
+<p>A buyer who pays the asking price with an ordinary loan needs the building's income to cover the loan payments with room to spare; lenders usually want about 1.25 times. If today's income doesn't do that, the buyer's plan needs more income: usually higher rents, as homes turn over or leases renew. This is not a scheduled increase. A buyer with more cash, or content with a thinner return, needs less. But it is the arithmetic the listing is pricing in.</p>
+<h2>What to do with it</h2>
+<ul>
+  <li><strong>Talk with your neighbors first.</strong> One household asking questions is a complaint; a building asking together is an organization.</li>
+  <li><strong>Ask what the listing shows.</strong> The broker's offering memorandum usually has the rent roll and expenses a buyer is shown.</li>
+  <li><strong>Know the law where you are.</strong> In Virginia, the landlord-tenant act lists organizing or joining a tenant organization among the acts a landlord may not retaliate against (<a href="https://law.lis.virginia.gov/vacode/title55.1/section55.1-1258/" rel="noopener">Va. Code § 55.1-1258</a>; a new version takes effect January 1, 2027, so read the current text). If a building is converted to condominiums, month-to-month tenants get 120 days' notice and a 60-day exclusive right to buy their own unit at the offering price (<a href="https://law.lis.virginia.gov/vacode/title55.1/chapter19/section55.1-1982/" rel="noopener">Va. Code § 55.1-1982</a>). Virginia gives tenants of an ordinary apartment building no right to buy it when it's sold. A tenant-rights group or lawyer can tell you more.</li>
+  <li><strong>See whether residents could buy it:</strong> <a href="/tools/could-we-buy-it/">Could we buy it?</a></li>
+</ul>
+<script src="/js/lec-core.js"></script>
+<script src="/js/tools/common.js"></script>
+<script src="/js/tools/asking-price.js"></script>

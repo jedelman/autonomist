@@ -130,12 +130,12 @@ for (const file of walk(join(root, 'site/pages')).filter((p) => p.endsWith('.md'
 }
 
 // chat, the saved-result shell, and 404
-for (const [src, target, section, bodyClass] of [['site/chat.html', 'chat/index.html', 'chat', 'chat'], ['site/results.html', 'results/index.html', '', '']]) {
+for (const [src, target, section, bodyClass] of [['site/chat.html', 'chat/index.html', 'chat', 'chat'], ['site/results.html', 'results/index.html', '', ''], ['site/admin.html', 'admin/index.html', '', '']]) {
   const { meta, body } = frontMatter(read(src))
   const scripts = (body.match(/<script[\s\S]*?<\/script>/g) || []).join('\n')
   write(target, page({ title: meta.title, description: meta.description, content: body.replace(/<script[\s\S]*?<\/script>\s*/g, ''), scripts, section, bodyClass, wide: target.startsWith('results') }))
 }
 write('404.html', page({ title: 'Not found · autonomist', content: '<h1>Not found</h1><p>There is no page at this address. Try the <a href="/">front page</a>.</p>' }))
-write('robots.txt', 'User-agent: *\nDisallow: /api/\nDisallow: /results/\n')
+write('robots.txt', 'User-agent: *\nDisallow: /api/\nDisallow: /results/\nDisallow: /admin/\n')
 write('content-index.json', JSON.stringify(index))
 console.log(`built public/: ${papers.length} papers, ${index['case-studies'].length} case studies, ${tools.length} tools`)

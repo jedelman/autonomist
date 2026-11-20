@@ -82,7 +82,17 @@ Then add `autonomist.jason-edelman.org` as the Worker's Custom Domain (dashboard
 until all are set (it fails closed). Limits: 30 questions per invite per UTC day and $3 of model spend
 for the whole site per day, both in `wrangler.toml`.
 
-Invites and requests: `node scripts/invites.mjs create --label "who it's for"`, `list`, `revoke`,
+**The steward's page** is `/admin/`, behind Cloudflare Access. From there you can mint codes, turn access
+requests into invites (with a pre-filled email from your own mail app), revoke invites, and read
+case-study proposals. Set it up:
+1. Zero Trust → Access → Applications → Add a self-hosted application for `autonomist.jason-edelman.org`
+   with two paths, `admin` and `api/admin`, and a policy allowing only your email.
+2. On the Worker, set the variables `ACCESS_TEAM_DOMAIN` (`<team>.cloudflareaccess.com`) and `ACCESS_AUD`
+   (the application's Audience tag), and optionally `ADMIN_EMAILS`. The Worker verifies Access's signed
+   token on every admin request, so the `workers.dev` address can't get around it (turn that address off
+   anyway).
+
+The same from a terminal: `node scripts/invites.mjs create --label "who it's for"`, `list`, `revoke`,
 `requests > ~/autonomist-requests.csv` (keep it out of the repository), `proposals`. Local test:
 `npm test`; `npx wrangler dev` with a `.dev.vars` holding the three secrets and a KV binding.
 

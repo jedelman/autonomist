@@ -5,14 +5,15 @@ import { currentInvite, redeem, joinWaitlist, sessionCookie, basePathOf } from '
 import { setting, visitorHash, spentToday, recordSpend } from './limits.js'
 import { ask } from './agent.js'
 import { UA_HEADER } from './parcel.js'
+import { adminApi, adminEnabled } from './admin.js'
 
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 const SECURITY = { 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()' }
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...SECURITY, ...headers } })
 const today = () => new Date().toISOString().slice(0, 10)
 
-function withSecurity(res) {
-  const r = new Response(res.body, res)
+function withSecurity(res, status) {
+  const r = new Response(res.body, status ? { status, headers: res.headers } : res)
   for (const [k, v] of Object.entries(SECURITY)) r.headers.set(k, v)
   return r
 }
@@ -131,6 +132,10 @@ export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url)
     const path = url.pathname
+    if (path.startsWith('/api/admin/')) {
+      if (req.method === 'POST' && !sameOrigin(req, env)) return json({ error: 'Not from this site.' }, 403)
+      return adminApi(req, env, path, json)
+    }
     if (path.startsWith('/api/')) {
       if (req.method === 'GET' && path === '/api/session') return session(req, env)
       if (req.method === 'GET' && path.startsWith('/api/results/')) return result(path.slice('/api/results/'.length), env)
@@ -146,6 +151,13 @@ export default {
     if (/^\/results\/[a-z0-9]{12}\/?$/.test(path)) {
       const shell = await env.ASSETS.fetch(new Request(new URL('/results/', req.url)))
       return withSecurity(shell)
+    }
+    if (path === '/admin' || path.startsWith('/admin/')) {
+      if (!adminEnabled(env)) return withSecurity(await env.ASSETS.fetch(new Request(new URL('/404.html', req.url))), 404)
+      const r = withSecurity(await env.ASSETS.fetch(req))
+      r.headers.set('X-Robots-Tag', 'noindex')
+      r.headers.set('Cache-Control', 'no-store')
+      return r
     }
     return withSecurity(await env.ASSETS.fetch(req))
   },

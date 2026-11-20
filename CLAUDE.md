@@ -35,21 +35,28 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   Access JWT on every `/api/admin/*` request (`worker/access.js`, from Siren); never trust the plain
   email header, and never add a password or token sign-in beside it. Off (404) without
   `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`.
-- **One conversation per invite** (Jason, 2026-11-20: "a single-chat format, no new conversation,
-  monocontext per user"). `worker/thread.js` keeps it in KV as `thread:<invite hash>`: questions,
-  answers, and each answer's sources and saved results (never tool results or thinking), and a memory
-  of what has scrolled out of view. The model sees
-  the memory plus every turn after it. Private to the invite; erased by the person, by revoking the
-  invite, or after a year unused. No "new conversation" button; "Erase my conversation" stays
-  (deletion on request), beside "Download my conversation". Say all of this wherever the privacy text
-  says what's stored.
-- **The memory is autonomist's own, in plain text** (Jason: "make this a durable asset for multiple
-  communities"). When the turns after the memory pass `HISTORY_CHARS`, `worker/memory.js` folds the
-  oldest into a summary (a separate priced call, after the answer, under the day's spend cap) and
-  `thread.js` records how many turns it covers. Not the API's compaction blocks: the memory must stay
-  readable, downloadable, erasable and portable across models. It rides inside the first user message
-  (never the system prompt), is shown to the person as plain text, and the summarizer may use only
-  what the conversation says.
+- **A public agent** (Jason, 2026-11-20). Design: `content/model/the-public-agent.md`. His rules:
+  - "ONLY the agent writes the memory." No person, steward included, edits it; corrections are new
+    turns, and the summarizer (`worker/memory.js`) may use only what the conversation says.
+  - "All user interactions with the agent are public." Questions, answers and how they were reached
+    (tools, inputs, results, sources) are a public record. The chat notice, the about page and the
+    system prompt say so.
+  - "The agent holds no authority to act - merely to aggregate and process data. The data is public
+    and portable." Never give it a tool that files, signs, pays, sends or decides for anyone.
+  - "Questions and reasoning are queryable and portable. atproto fits." Records go toward atproto,
+    under `org.jason-edelman.autonomist.*` (proposed); keep the stored shape exportable.
+  - "Nothing that's publication-risk should ever go to the agent. Disclaim but don't gate." Warn
+    plainly everywhere people type; add no review gate in front of the conversation.
+- **One conversation per invite, with the agent's memory.** `worker/thread.js` keeps it in KV as
+  `thread:<invite hash>`: questions, answers, each answer's sources and saved results, and the memory.
+  Not yet the trace (tools, inputs, results): it joins the record with the public pages. Never raw
+  thinking. When the turns after the memory pass `HISTORY_CHARS`,
+  `memory.js` folds the oldest into a plain-text summary (a separate priced call, after the answer,
+  under the day's spend cap). The model sees the memory, inside the first user message (never the
+  system prompt), then every later turn. Not the API's compaction blocks: the memory must stay
+  readable, downloadable and portable across models. No "new conversation" button; "Download my
+  conversation" and "Erase my conversation" (withdrawal) stay. Revoking an invite erases its thread;
+  a year unused expires it.
 - **Keep these projects separate unless Jason links them:** Ghent Streets (Jason, 2026-11-20).
 
 ## Layout

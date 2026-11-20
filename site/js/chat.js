@@ -112,7 +112,7 @@ $('composer').addEventListener('submit', (e) => { e.preventDefault(); const q = 
 $('composer').q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit() } })
 for (const b of $('examples').querySelectorAll('button')) b.addEventListener('click', () => askQ(b.textContent))
 $('erase').addEventListener('click', async () => {
-  if (!confirm('Erase your whole conversation and what autonomist remembers of it? It is deleted for good, on every browser using your invite. You can download it first.')) return
+  if (!confirm('Withdraw your whole conversation and its memory from autonomist? It is deleted for good, on every browser using your invite; copies others already made can\'t be called back. You can download it first.')) return
   const { res, data } = await post('/api/thread/erase', {})
   if (!res.ok) return status(data.error || "That didn't work.", true)
   $('log').replaceChildren()

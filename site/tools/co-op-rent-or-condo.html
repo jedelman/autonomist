@@ -1,0 +1,21 @@
+---
+title: Co-op, rent or condo?
+summary: For someone with options. Compare net worth after some years as a limited-equity co-op member, a renter and a condo owner, from the same savings and budget.
+order: 3
+---
+<h1>Co-op, rent or condo?</h1>
+<p class="lede">Three households start with the same savings and the same housing budget. One rents, one buys a condo, one joins a limited-equity co-op. Whatever a household doesn't spend on housing, it invests. Who is ahead after some years?</p>
+<form class="tool" id="f">
+  <label>Years<input name="years" type="number" min="1" max="15" step="1" value="7"></label>
+  <label>Market rent growth a year (%)<input name="growth" type="number" min="-5" max="10" step="0.5" value="3"></label>
+  <label>Return on invested savings (%)<input name="port" type="number" min="0" max="15" step="0.5" value="6"></label>
+  <label>Condo mortgage rate (%)<input name="mort" type="number" min="2" max="12" step="0.125" value="6.5"></label>
+  <label>Condo price ($)<input name="condo" type="number" min="50000" step="1000" value="350000"></label>
+  <div><button type="submit">Compare</button></div>
+</form>
+<div class="out" id="out" aria-live="polite"></div>
+<h2>What's inside</h2>
+<p>The co-op is the model's worked 8-unit building with its default governance: members are credited the loan paydown and their share is indexed at 3% a year; 5% of market rent goes to reserves and the federation pool. The condo buyer puts 20% down plus 3% closing costs, pays property tax at Norfolk's $1.23 per $100 (the City's rate effective July 2024), a $450 monthly fee and 1% of value a year in upkeep, and pays 7% to sell. Building values move with rents and costs. No income taxes are modeled. The full tables are in <a href="/model/results/">Results</a>, section 3.</p>
+<script src="/js/lec-core.js"></script>
+<script src="/js/tools/common.js"></script>
+<script src="/js/tools/co-op-rent-or-condo.js"></script>

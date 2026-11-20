@@ -1,0 +1,22 @@
+---
+title: Federation stress lab
+summary: Simulate 24 co-ops over 15 years of shocks. Compare co-ops on their own, a firewalled shared pool and one merged balance sheet; move the pooling dial; spread across markets.
+order: 4
+---
+<h1>Federation stress lab</h1>
+<p class="lede">Twenty-four limited-equity co-ops, fifteen years, random shocks: interest rates wander, regional rents drop, roofs fail, homes sit empty. What does each design lose?</p>
+<form class="tool" id="f">
+  <label>Design<select name="arch"><option value="isolated">Each co-op on its own</option><option value="pool" selected>Separate co-ops sharing a pool</option><option value="merged">One balance sheet</option></select></label>
+  <label>Stress<select name="stress"><option value="base">Base</option><option value="moderate" selected>Moderate (shocks twice as often)</option><option value="severe">Severe (deep regional rent drops)</option></select></label>
+  <label>Share of savings each co-op pools<select name="pooled"><option value="">Each co-op chooses</option><option value="0">0%</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option></select></label>
+  <label>Independent markets<input name="regions" type="number" min="1" max="8" step="1" value="1"></label>
+  <label>Senior debt at purchase<select name="senior"><option value="">A mix (60/70/80%)</option><option value="0.6">60%</option><option value="0.7">70%</option><option value="0.8">80%</option></select></label>
+  <label>Runs<input name="runs" type="number" min="20" max="400" step="10" value="200"></label>
+  <div><button type="submit">Run</button></div>
+</form>
+<div class="out" id="out" aria-live="polite"></div>
+<h2>How it works</h2>
+<p>Co-ops of 6 to 24 homes are bought only if their income covers their loan payments 1.15 times over. Each picks its own savings rate, pooled share and member credits from a menu, unless you fix them here. A shortfall is met from the co-op's reserve, then a one-off assessment on members, then refinancing, then the pool (separate co-ops can draw up to a quarter of the pool, or four times what they've put in, in a year), or the co-op fails and its lender takes the building. "One balance sheet" pools everything with no limits and one loan, so one default takes all. A mechanism model, not a forecast: the full description and results are in <a href="/model/results/#4-the-federation">Results, section 4</a>.</p>
+<script src="/js/lec-core.js"></script>
+<script src="/js/tools/common.js"></script>
+<script src="/js/tools/federation-lab.js"></script>

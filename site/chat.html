@@ -1,0 +1,40 @@
+---
+title: Chat · autonomist
+description: Ask autonomist's organizer about a building, a buyout or a co-op federation.
+---
+<h1>Chat with the organizer</h1>
+<p class="disclosure">You're talking with an AI (Claude, by Anthropic). It computes with the <a href="/model/">engine model</a> and reads public records, and it can be wrong. Your questions go to Anthropic to be answered; autonomist doesn't store the conversation. Nothing it says is investment, legal or financial advice. <a href="/about/">More</a></p>
+<div id="status" role="status"></div>
+<section id="gate" hidden>
+  <p><strong>The chat is invite-only while it's new.</strong> If you have a code, enter it. If not, request access.</p>
+  <form id="code-form">
+    <label>Invite code<input name="code" autocomplete="off" placeholder="AUTONOMIST-XXXXX-XXXXX" required></label>
+    <button type="submit">Enter</button>
+    <button type="button" class="secondary" id="show-access">Request access</button>
+  </form>
+  <form id="access" hidden>
+    <p class="muted">Your email is used only to send an invite and news about autonomist, and deleted on request. See <a href="/about/">About and privacy</a>.</p>
+    <div class="row">
+      <label>Email<input name="email" type="email" autocomplete="email" required></label>
+      <label>Name (optional)<input name="name" autocomplete="name"></label>
+      <label>Organization (optional)<input name="org" autocomplete="organization"></label>
+    </div>
+    <label>What would you use it for? (optional)<textarea name="note" rows="3" maxlength="600"></textarea></label>
+    <label class="hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
+    <div><button type="submit">Request access</button></div>
+  </form>
+</section>
+<section id="chat" hidden>
+  <div id="log" aria-live="polite"></div>
+  <div class="examples" id="examples">
+    <button type="button">A building with 12 apartments is listed at $1.9 million at a 5.5% cap rate. What would a buyer need to raise rents by?</button>
+    <button type="button">Could the residents of an 8-unit building priced at $2.4 million, 6.27% cap, buy it together?</button>
+    <button type="button">Is a federation of co-ops safer pooled or merged?</button>
+    <button type="button">What's on the public record for 740 W Princess Anne Rd in Norfolk?</button>
+  </div>
+  <form id="composer">
+    <textarea name="q" rows="2" maxlength="4000" placeholder="Ask about a building, a buyout or a federation…" required></textarea>
+    <button type="submit">Ask</button>
+  </form>
+</section>
+<script type="module" src="/js/chat.js"></script>

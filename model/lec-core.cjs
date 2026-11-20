@@ -316,7 +316,54 @@ function federation(F0 = {}) {
   }
 }
 
-const api = { payment, rng, BUILDING, STACK, GOV, MARKET, HOUSEHOLD, FED, makeCoop, coopYear, runCoop, compare, federation, federationRun }
+// ---- quick underwriting, for the public tools and the agent ----
+// A building's numbers across capital stacks. b: { units, price, noi | capRate, repairs }.
+// Each stack: shares of the total cost (price + repairs) and their terms. Returns, per stack,
+// the yearly debt service, DSCR, cash left after debt, equity to raise (total and a home), and
+// the most the stack could pay at minDSCR; plus what a private-equity buyer could pay.
+const STACKS = {
+  commons: { label: 'Commons: senior notes 70% at 5%/30y, solidarity 20% at 2% interest-only, members 10%', parts: [[0.70, 0.05, 30], [0.20, 0.02, 0]], equity: 0.10 },
+  cdfi: { label: 'Community lender 80% at 6%/30y, seller note 15% at 3%/20y, equity 5%', parts: [[0.80, 0.06, 30], [0.15, 0.03, 20]], equity: 0.05 },
+  patient: { label: 'Patient lender 90% at 2%/40y, equity 10%', parts: [[0.90, 0.02, 40]], equity: 0.10 },
+  bank: { label: 'Bank 75% at 7%/30y, equity 25% (a typical private buyer)', parts: [[0.75, 0.07, 30]], equity: 0.25 },
+}
+function stackDebt(need, st) { return st.parts.reduce((a, [share, rate, years]) => a + (years ? payment(need * share, rate, years) : need * share * rate), 0) }
+function underwrite(b0, opts = {}) {
+  const b = { repairs: 0, ...b0 }
+  const noi = b.noi != null ? b.noi : b.capRate * b.price
+  const need = b.price + b.repairs
+  const minDSCR = opts.minDSCR || 1.15
+  const stacks = opts.stacks || STACKS
+  const out = { noi, need, capRate: noi / b.price, perHome: b.units ? need / b.units : null, minDSCR, stacks: {} }
+  for (const [key, st] of Object.entries(stacks)) {
+    const ds = stackDebt(need, st), k = stackDebt(1, st)
+    out.stacks[key] = { label: st.label, debtService: ds, dscr: noi / ds, cashAfterDebt: noi - ds, equity: need * st.equity, equityPerHome: b.units ? need * st.equity / b.units : null, maxCost: noi / minDSCR / k, cashPerHomeMonth: b.units ? (noi - ds) / b.units / 12 : null }
+  }
+  out.coordinationDividend = out.stacks.commons && out.stacks.bank ? out.stacks.commons.maxCost - out.stacks.bank.maxCost : null
+  return out
+}
+
+// What an asking price implies for rents. A buyer at the asking price, borrowing on ordinary
+// terms, needs net operating income of at least dscr times the loan payment. Compared with the
+// income the listing states, that is the rise the purchase needs. It is not a scheduled rent
+// increase: a buyer with more cash, or one content with less, needs less.
+function pressure(p0) {
+  const p = { ltv: 0.75, rate: 0.07, years: 30, dscr: 1.25, ...p0 }
+  const noi = p.noi != null ? p.noi : p.capRate * p.price
+  const ds = payment(p.price * p.ltv, p.rate, p.years)
+  const needed = p.dscr * ds
+  const out = { noi, debtService: ds, dscrAtAsk: noi / ds, noiNeeded: needed, riseNeeded: needed / noi - 1 }
+  // With costs as a share of gross rent, the same rise in rent terms
+  if (p.costShare != null) {
+    const gross = noi / (1 - p.costShare), costs = gross - noi
+    out.rentRiseNeeded = (needed + costs) / gross - 1
+  }
+  // The price at which ordinary terms work on today's income
+  out.priceThatWorks = noi / p.dscr / payment(p.ltv, p.rate, p.years)
+  return out
+}
+
+const api = { payment, rng, BUILDING, STACK, GOV, MARKET, HOUSEHOLD, FED, STACKS, makeCoop, coopYear, runCoop, compare, federation, federationRun, underwrite, pressure }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 else root.LEC = api
 })(typeof window !== 'undefined' ? window : globalThis)

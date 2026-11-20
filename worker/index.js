@@ -4,7 +4,8 @@
 import { currentInvite, redeem, joinWaitlist, sessionCookie, basePathOf } from './invites.js'
 import { setting, visitorHash, spentToday, recordSpend } from './limits.js'
 import { ask } from './agent.js'
-import { loadThread, saveThread, eraseThread, contextWindow, publicTurns } from './thread.js'
+import { loadThread, saveThread, eraseThread, contextWindow, foldPlan, publicThread, exportMarkdown } from './thread.js'
+import { foldMemory } from './memory.js'
 import { UA_HEADER } from './parcel.js'
 import { adminApi, adminEnabled } from './admin.js'
 
@@ -13,7 +14,7 @@ const SECURITY = { 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'no
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...SECURITY, ...headers } })
 const today = () => new Date().toISOString().slice(0, 10)
 // Swappable for tests.
-export const deps = { ask }
+export const deps = { ask, fold: foldMemory }
 
 function withSecurity(res, status) {
   const r = new Response(res.body, status ? { status, headers: res.headers } : res)
@@ -58,8 +59,9 @@ async function chat(req, env, ctx) {
   const question = String(body?.question || '').replace(/\u0000/g, '').trim().slice(0, 4000)
   if (!question) return json({ error: 'Ask a question.' }, 400)
   // one conversation per invite, kept on the server; without invites, each question stands alone
-  const thread = invite ? await loadThread(kv, invite.hash) : { turns: [] }
-  const messages = contextWindow(thread.turns, question, setting(env.HISTORY_CHARS, 150_000, { min: 4000, max: 600_000 }))
+  const thread = invite ? await loadThread(kv, invite.hash) : { turns: [], memory: null }
+  const historyBudget = setting(env.HISTORY_CHARS, 150_000, { min: 4000, max: 600_000 })
+  const messages = contextWindow(thread, question, historyBudget)
 
   const day = today()
   // daily limits: per invite, and one budget for the whole site (fails closed)
@@ -97,6 +99,8 @@ async function chat(req, env, ctx) {
     if (invite) {
       thread.turns.push({ role: 'user', content: question, at }, { role: 'assistant', content: out.answer, sources: out.sources, results: out.results, at })
       await saveThread(kv, invite.hash, thread)
+      // fold what has scrolled out of view into the memory, after the answer has gone back
+      if (foldPlan(thread, historyBudget)) ctx.waitUntil(foldNow(env, invite.hash, historyBudget, day).catch((e) => console.error('memory fold failed', String(e?.message || e).slice(0, 200))))
     }
     ctx.waitUntil(Promise.all(spends))
     console.log(JSON.stringify({ event: 'answer', tools: out.tools.map((t) => t.tool), steps: out.tools.length, context_turns: messages.length, cost: Math.round(out.cost * 1e6) / 1e6, refused: Boolean(out.refused) }))
@@ -108,7 +112,25 @@ async function chat(req, env, ctx) {
   }
 }
 
-// The person's conversation: GET to show it, POST /api/thread/erase to erase it.
+// Fold the oldest turns past the budget into the thread's memory. Re-reads the thread before
+// writing and gives up if another fold got there first, so a concurrent turn is never lost.
+async function foldNow(env, hash, budget, day) {
+  const kv = env.KV
+  if ((await spentToday(kv, day)) >= setting(env.DAILY_BUDGET_USD, 3, { min: 0 })) return
+  const before = await loadThread(kv, hash)
+  const plan = foldPlan(before, budget)
+  if (!plan) return
+  const { text, cost } = await deps.fold({ memory: before.memory?.text || '', turns: before.turns.slice(plan.from, plan.to), env, model: env.MODEL || 'claude-haiku-5-5' })
+  await recordSpend(kv, day, cost).catch(() => {})
+  if (!text) return
+  const now = await loadThread(kv, hash)
+  if ((now.memory?.through || 0) !== plan.from || now.turns.length < plan.to) return
+  now.memory = { text, through: plan.to, updated: new Date().toISOString() }
+  await saveThread(kv, hash, now)
+  console.log(JSON.stringify({ event: 'memory_fold', folded_turns: plan.to - plan.from, memory_chars: text.length, cost: Math.round(cost * 1e6) / 1e6 }))
+}
+
+// The person's conversation: GET to show it (or ?export to download it), POST /api/thread/erase to erase it.
 async function threadRoute(req, env, erase = false) {
   const setup = setupError(env)
   if (setup) return json({ error: setup }, 503)
@@ -116,7 +138,10 @@ async function threadRoute(req, env, erase = false) {
   if (!invite) return json({ error: 'Enter your invite code first.', gate: 'invite' }, 401)
   if (erase) { await eraseThread(env.KV, invite.hash); return json({ ok: true }) }
   const thread = await loadThread(env.KV, invite.hash)
-  return json({ turns: publicTurns(thread.turns) })
+  if (new URL(req.url).searchParams.has('export')) {
+    return new Response(exportMarkdown(thread, env.PUBLIC_ORIGIN || new URL(req.url).origin), { headers: { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': 'attachment; filename="autonomist-conversation.md"', 'Cache-Control': 'no-store', ...SECURITY } })
+  }
+  return json(publicThread(thread))
 }
 
 async function redeemCode(req, env) {

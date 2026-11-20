@@ -25,6 +25,7 @@ description: Ask autonomist's organizer about a building, a buyout or a co-op fe
   </form>
 </section>
 <section id="chat" hidden>
+  <details id="memory" class="memory" hidden><summary>What autonomist remembers from earlier in our conversation</summary><p class="muted">Older turns are still below, but the model now reads this summary of them, written by autonomist from the conversation. It may miss things; tell it if something matters.</p><div id="memory-text"></div></details>
   <div id="log" aria-live="polite"></div>
   <div class="examples" id="examples">
     <button type="button">A building with 12 apartments is listed at $1.9 million at a 5.5% cap rate. What would a buyer need to raise rents by?</button>
@@ -36,6 +37,6 @@ description: Ask autonomist's organizer about a building, a buyout or a co-op fe
     <textarea name="q" rows="2" maxlength="4000" placeholder="Ask about a building, a buyout or a federation…" required></textarea>
     <button type="submit">Ask</button>
   </form>
-  <p id="erase-row" class="erase" hidden><button type="button" class="linklike" id="erase">Erase my conversation</button></p>
+  <p id="erase-row" class="erase" hidden><a class="linklike" href="/api/thread?export" download>Download my conversation</a> · <button type="button" class="linklike" id="erase">Erase my conversation</button></p>
 </section>
 <script type="module" src="/js/chat.js"></script>

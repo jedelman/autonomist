@@ -22,6 +22,7 @@ async function showChat() {
     const data = await r.json()
     if (r.status === 401) return showGate()
     $('log').replaceChildren()
+    showMemory(data.memory)
     for (const t of data.turns || []) addMessage(t.role, t.content, t, false)
     $('examples').hidden = (data.turns || []).length > 0
     $('erase-row').hidden = !(data.turns || []).length
@@ -60,6 +61,12 @@ $('access').addEventListener('submit', async (e) => {
 })
 
 const ALLOWED = [/^\/(?!\/)/, /^#[\w-]+$/, /^https:\/\/power-explained\.jason-edelman\.org(\/|$)/, /^https:\/\/github\.com\/jedelman\/autonomist(\/|$)/]
+
+// The memory is model-written: shown as plain text, never as markup or links.
+function showMemory(memory) {
+  $('memory').hidden = !memory?.text
+  $('memory-text').textContent = memory?.text || ''
+}
 
 function addMessage(role, text, extra = {}, scroll = true) {
   const div = document.createElement('div')
@@ -105,10 +112,11 @@ $('composer').addEventListener('submit', (e) => { e.preventDefault(); const q = 
 $('composer').q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit() } })
 for (const b of $('examples').querySelectorAll('button')) b.addEventListener('click', () => askQ(b.textContent))
 $('erase').addEventListener('click', async () => {
-  if (!confirm('Erase your whole conversation? It is deleted from autonomist for good, on every browser using your invite.')) return
+  if (!confirm('Erase your whole conversation and what autonomist remembers of it? It is deleted for good, on every browser using your invite. You can download it first.')) return
   const { res, data } = await post('/api/thread/erase', {})
   if (!res.ok) return status(data.error || "That didn't work.", true)
   $('log').replaceChildren()
+  showMemory(null)
   $('examples').hidden = false
   $('erase-row').hidden = true
   status('Erased.')

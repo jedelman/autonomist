@@ -37,17 +37,26 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`.
 - **One conversation per invite** (Jason, 2026-11-20: "a single-chat format, no new conversation,
   monocontext per user"). `worker/thread.js` keeps it in KV as `thread:<invite hash>`: questions,
-  answers, and each answer's sources and saved results; never tool results or thinking. The model sees
-  the newest turns within `HISTORY_CHARS`. Private to the invite; erased by the person, by revoking
-  the invite, or after a year unused. No "new conversation" button; "Erase my conversation" stays
-  (deletion on request). Say all of this wherever the privacy text says what's stored.
+  answers, and each answer's sources and saved results (never tool results or thinking), and a memory
+  of what has scrolled out of view. The model sees
+  the memory plus every turn after it. Private to the invite; erased by the person, by revoking the
+  invite, or after a year unused. No "new conversation" button; "Erase my conversation" stays
+  (deletion on request), beside "Download my conversation". Say all of this wherever the privacy text
+  says what's stored.
+- **The memory is autonomist's own, in plain text** (Jason: "make this a durable asset for multiple
+  communities"). When the turns after the memory pass `HISTORY_CHARS`, `worker/memory.js` folds the
+  oldest into a summary (a separate priced call, after the answer, under the day's spend cap) and
+  `thread.js` records how many turns it covers. Not the API's compaction blocks: the memory must stay
+  readable, downloadable, erasable and portable across models. It rides inside the first user message
+  (never the system prompt), is shown to the person as plain text, and the summarizer may use only
+  what the conversation says.
 - **Keep these projects separate unless Jason links them:** Ghent Streets (Jason, 2026-11-20).
 
 ## Layout
 
 - `model/` the engine model (Node and browser), its driver and generated results.
 - `worker/` the Worker: `index.js` (routes, limits, headers), `admin.js` and `access.js` (the steward's page), `agent.js` (the tool loop, the system
-  prompt), `thread.js` (each invite's one conversation), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
+  prompt), `thread.js` and `memory.js` (each invite's one conversation and its memory), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
   2026-11-20), `invites.js` and `limits.js` (adapted from Siren's, MIT).
 - `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers and case
   studies; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on

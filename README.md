@@ -53,7 +53,7 @@ One Cloudflare Worker serves everything at `autonomist.jason-edelman.org`:
 | path | what |
 |---|---|
 | `/` | what autonomist is, plainly marked as a public-interest project |
-| `/chat/` | the organizer: Claude Haiku 5.5 with tools, behind invite codes and a "Request access" form; one ongoing conversation per invite, kept on the server and loaded on any of that person's browsers |
+| `/chat/` | the organizer: Claude Haiku 5.5 with tools, behind invite codes and a "Request access" form; one ongoing conversation per invite, kept on the server and loaded on any of that person's browsers, with a plain-text memory of what has scrolled out of the model's view; downloadable and erasable |
 | `/case-studies/` | sourced research, published only after a person checks every source |
 | `/model/` | technical papers (the design paper, and `model/results.md` as published results) |
 | `/tools/` | public tools that run in the browser: what an asking price means for rent, could we buy it, co-op vs rent vs condo, the federation stress lab |

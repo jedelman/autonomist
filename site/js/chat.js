@@ -1,12 +1,12 @@
-// The chat page: the invite gate, "Request access", and the conversation. The conversation lives
-// only in this tab. Answers render through md.js, which escapes everything; a link survives only
-// if it points at this site, Power Explained, the project's source, or a source the server says
-// this answer used.
+// The chat page: the invite gate, "Request access", and the person's one conversation, kept on the
+// server under their invite (thread.js) and loaded whenever the page opens, on any of their
+// browsers. Answers render through md.js, which escapes everything; a link survives only if it
+// points at this site, Power Explained, the project's source, or a source the server says that
+// answer used.
 import { render, esc } from './md.js'
 
 const $ = (id) => document.getElementById(id)
 const status = (t, bad = false) => { $('status').textContent = t || ''; $('status').classList.toggle('bad', bad) }
-const turns = []
 
 async function post(path, body) {
   const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -14,7 +14,22 @@ async function post(path, body) {
   return { res, data }
 }
 
-function showChat() { $('gate').hidden = true; $('chat').hidden = false; $('composer').q.focus() }
+async function showChat() {
+  $('gate').hidden = true
+  $('chat').hidden = false
+  try {
+    const r = await fetch('/api/thread', { cache: 'no-store' })
+    const data = await r.json()
+    if (r.status === 401) return showGate()
+    $('log').replaceChildren()
+    for (const t of data.turns || []) addMessage(t.role, t.content, t, false)
+    $('examples').hidden = (data.turns || []).length > 0
+    $('erase-row').hidden = !(data.turns || []).length
+    const last = $('log').lastElementChild
+    if (last) last.scrollIntoView({ block: 'end' })
+  } catch { status("Couldn't load your conversation. Reload to try again.", true) }
+  $('composer').q.focus()
+}
 function showGate() { $('gate').hidden = false; $('chat').hidden = true }
 
 async function init() {
@@ -46,7 +61,7 @@ $('access').addEventListener('submit', async (e) => {
 
 const ALLOWED = [/^\/(?!\/)/, /^#[\w-]+$/, /^https:\/\/power-explained\.jason-edelman\.org(\/|$)/, /^https:\/\/github\.com\/jedelman\/autonomist(\/|$)/]
 
-function addMessage(role, text, extra = {}) {
+function addMessage(role, text, extra = {}, scroll = true) {
   const div = document.createElement('div')
   div.className = `msg ${role}`
   if (role === 'user') div.textContent = text
@@ -61,7 +76,7 @@ function addMessage(role, text, extra = {}) {
     }
   }
   $('log').append(div)
-  div.scrollIntoView({ block: 'end', behavior: 'smooth' })
+  if (scroll) div.scrollIntoView({ block: 'end', behavior: 'smooth' })
 }
 
 async function askQ(q) {
@@ -69,19 +84,19 @@ async function askQ(q) {
   if (!q) return
   $('examples').hidden = true
   addMessage('user', q)
-  turns.push({ role: 'user', content: q })
   const btn = $('composer').querySelector('button')
   btn.disabled = true
   status('Working it out…')
+  const giveBack = () => { $('log').lastElementChild?.remove(); $('composer').q.value = q }
   try {
-    const { res, data } = await post('/api/chat', { messages: turns.slice(-9) })
-    if (res.status === 401 && data.gate) { turns.pop(); status(data.error, true); return showGate() }
-    if (!res.ok) { turns.pop(); return status(data.error || 'Something went wrong.', true) }
-    turns.push({ role: 'assistant', content: data.answer })
+    const { res, data } = await post('/api/chat', { question: q })
+    if (res.status === 401 && data.gate) { giveBack(); status(data.error, true); return showGate() }
+    if (!res.ok) { giveBack(); return status(data.error || 'Something went wrong.', true) }
     addMessage('assistant', data.answer, data)
+    $('erase-row').hidden = false
     status('')
   } catch {
-    turns.pop()
+    giveBack()
     status("Couldn't reach the server. Try again.", true)
   } finally { btn.disabled = false }
 }
@@ -89,4 +104,13 @@ async function askQ(q) {
 $('composer').addEventListener('submit', (e) => { e.preventDefault(); const q = e.target.q.value; e.target.q.value = ''; askQ(q) })
 $('composer').q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit() } })
 for (const b of $('examples').querySelectorAll('button')) b.addEventListener('click', () => askQ(b.textContent))
+$('erase').addEventListener('click', async () => {
+  if (!confirm('Erase your whole conversation? It is deleted from autonomist for good, on every browser using your invite.')) return
+  const { res, data } = await post('/api/thread/erase', {})
+  if (!res.ok) return status(data.error || "That didn't work.", true)
+  $('log').replaceChildren()
+  $('examples').hidden = false
+  $('erase-row').hidden = true
+  status('Erased.')
+})
 init()

@@ -23,8 +23,8 @@ Limits you keep:
 const MAX_TOOL_CHARS = 12000
 
 /**
- * Answer one turn. messages: prior turns as plain { role, content: string } plus the new
- * question. Options: env, kv, fetchJson, content, onCost(usd), create (for tests: replaces the
+ * Answer one turn. messages: the person's conversation as plain { role, content: string } turns
+ * (thread.js builds the window), ending with the new question. Options: env, kv, fetchJson, content, onCost(usd), create (for tests: replaces the
  * SDK call), maxSteps, model, maxTokens, effort.
  */
 export async function ask({ messages, env = {}, kv, fetchJson, content, onCost = () => {}, create, maxSteps = 6, model = 'claude-haiku-5-5', maxTokens = 8000, effort = 'high' }) {
@@ -42,6 +42,8 @@ export async function ask({ messages, env = {}, kv, fetchJson, content, onCost =
       model,
       max_tokens: maxTokens,
       system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+      // the conversation so far is a stable prefix too: cache up to the newest block
+      cache_control: { type: 'ephemeral' },
       tools: TOOLS,
       output_config: { effort },
       ...(last ? { tool_choice: { type: 'none' } } : {}),

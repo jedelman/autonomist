@@ -3,7 +3,7 @@ title: Chat · autonomist
 description: Ask autonomist's organizer about a building, a buyout or a co-op federation.
 ---
 <h1>Chat with the organizer</h1>
-<p class="disclosure">You're talking with an AI (Claude, by Anthropic). It computes with the <a href="/model/">engine model</a> and reads public records, and it can be wrong. Your questions go to Anthropic to be answered; autonomist doesn't store the conversation. Nothing it says is investment, legal or financial advice. <a href="/about/">More</a></p>
+<p class="disclosure">You're talking with an AI (Claude, by Anthropic). It computes with the <a href="/model/">engine model</a> and reads public records, and it can be wrong. You have one ongoing conversation, kept privately under your invite so you can pick up where you left off on any of your browsers; your questions also go to Anthropic to be answered. Nothing it says is investment, legal or financial advice. <a href="/about/#the-chat-agent">More</a></p>
 <div id="status" role="status"></div>
 <section id="gate" hidden>
   <p><strong>The chat is invite-only while it's new.</strong> If you have a code, enter it. If not, request access.</p>
@@ -36,5 +36,6 @@ description: Ask autonomist's organizer about a building, a buyout or a co-op fe
     <textarea name="q" rows="2" maxlength="4000" placeholder="Ask about a building, a buyout or a federation…" required></textarea>
     <button type="submit">Ask</button>
   </form>
+  <p id="erase-row" class="erase" hidden><button type="button" class="linklike" id="erase">Erase my conversation</button></p>
 </section>
 <script type="module" src="/js/chat.js"></script>

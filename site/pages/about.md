@@ -17,7 +17,8 @@ autonomist is a public-interest project of Jason Edelman. It is not a company, i
 
 The chat is an AI: Claude, by Anthropic. It can be wrong. It computes with the engine model and reads public records, and it says which numbers it computed and which it assumed.
 
-- **Your questions go to Anthropic** to be answered. autonomist doesn't store conversations: the chat keeps yours in your browser tab, and it's gone when you close the tab.
+- **One conversation, kept for you.** Each invite has a single ongoing conversation, so you can pick up where you left off on any browser using your invite. It's stored privately on autonomist's storage (Cloudflare), tied to your invite: your questions, the answers, and the sources each answer used. It's never published and never used for anything but continuing your conversation. Erase it any time with "Erase my conversation" under the chat; it's also erased if your invite is revoked, or after a year without use.
+- **Your questions also go to Anthropic** to be answered, with as much of your conversation as fits in the model's working context.
 - **It reads buildings, not people.** The building lookup takes an address only. It never shows the owner or sale price of a home, and it shows an apartment or commercial building's owner only when the owner is plainly an organization.
 - **Saved results are public.** When you ask for a link, the result page shows the computation and a title, rendered from the inputs by code. Nothing else from your conversation appears there.
 - **Case-study proposals go to a person.** The agent can send a draft to the project's steward; nothing is published until every source has been checked.

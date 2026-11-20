@@ -63,3 +63,13 @@ test('a steward mints a code, turns a request into an invite, and revokes', asyn
   assert.equal((await call(e, '/api/admin/revoke', t, { hash: s.invites[0].hash })).status, 200)
   assert.equal((await call(e, '/api/admin/revoke', t, { hash: '../x' })).status, 400)
 })
+
+test('revoking an invite erases its conversation', async () => {
+  const e = env()
+  const t = await jwt({})
+  const hash = 'b'.repeat(64)
+  await e.KV.put(`invite:${hash}`, JSON.stringify({ label: 'x' }))
+  await e.KV.put(`thread:${hash}`, JSON.stringify({ turns: [{ role: 'user', content: 'hi' }] }))
+  assert.equal((await call(e, '/api/admin/revoke', t, { hash })).status, 200)
+  assert.equal(e.KV.m.has(`thread:${hash}`), false)
+})

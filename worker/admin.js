@@ -9,6 +9,7 @@
 // - Everything people typed into the request form is returned as data and shown as text.
 import { newCode, inviteKey } from './invites.js'
 import { verifyAccess } from './access.js'
+import { threadKey } from './thread.js'
 
 export const adminEnabled = (env) => Boolean(env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD && env.KV)
 
@@ -68,6 +69,7 @@ export async function adminApi(req, env, path, json, fetchImpl = fetch) {
   if (path === '/api/admin/revoke') {
     if (!HASH.test(String(body.hash))) return json({ error: 'No such invite.' }, 400)
     await kv.delete(`invite:${body.hash}`)
+    await kv.delete(threadKey(body.hash)) // the person's conversation goes with the invite
     return json({ ok: true })
   }
   if (path === '/api/admin/request/invite') {

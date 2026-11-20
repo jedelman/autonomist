@@ -35,13 +35,19 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   Access JWT on every `/api/admin/*` request (`worker/access.js`, from Siren); never trust the plain
   email header, and never add a password or token sign-in beside it. Off (404) without
   `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`.
+- **One conversation per invite** (Jason, 2026-11-20: "a single-chat format, no new conversation,
+  monocontext per user"). `worker/thread.js` keeps it in KV as `thread:<invite hash>`: questions,
+  answers, and each answer's sources and saved results; never tool results or thinking. The model sees
+  the newest turns within `HISTORY_CHARS`. Private to the invite; erased by the person, by revoking
+  the invite, or after a year unused. No "new conversation" button; "Erase my conversation" stays
+  (deletion on request). Say all of this wherever the privacy text says what's stored.
 - **Keep these projects separate unless Jason links them:** Ghent Streets (Jason, 2026-11-20).
 
 ## Layout
 
 - `model/` the engine model (Node and browser), its driver and generated results.
 - `worker/` the Worker: `index.js` (routes, limits, headers), `admin.js` and `access.js` (the steward's page), `agent.js` (the tool loop, the system
-  prompt), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
+  prompt), `thread.js` (each invite's one conversation), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
   2026-11-20), `invites.js` and `limits.js` (adapted from Siren's, MIT).
 - `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers and case
   studies; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on

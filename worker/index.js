@@ -4,6 +4,7 @@
 import { currentInvite, redeem, joinWaitlist, sessionCookie, basePathOf } from './invites.js'
 import { setting, visitorHash, spentToday, recordSpend } from './limits.js'
 import { ask } from './agent.js'
+import { loadThread, saveThread, eraseThread, contextWindow, publicTurns } from './thread.js'
 import { UA_HEADER } from './parcel.js'
 import { adminApi, adminEnabled } from './admin.js'
 
@@ -11,6 +12,8 @@ const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 's
 const SECURITY = { 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()' }
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...SECURITY, ...headers } })
 const today = () => new Date().toISOString().slice(0, 10)
+// Swappable for tests.
+export const deps = { ask }
 
 function withSecurity(res, status) {
   const r = new Response(res.body, status ? { status, headers: res.headers } : res)
@@ -52,10 +55,11 @@ async function chat(req, env, ctx) {
   }
   let body
   try { body = await readJson(req) } catch { return json({ error: 'Send your question as JSON.' }, 400) }
-  const turns = Array.isArray(body?.messages) ? body.messages : []
-  const messages = turns.slice(-9).map((m) => ({ role: m?.role === 'assistant' ? 'assistant' : 'user', content: String(m?.content || '').slice(0, 4000) })).filter((m) => m.content.trim())
-  if (!messages.length || messages[messages.length - 1].role !== 'user') return json({ error: 'Ask a question.' }, 400)
-  while (messages.length && messages[0].role !== 'user') messages.shift()
+  const question = String(body?.question || '').replace(/\u0000/g, '').trim().slice(0, 4000)
+  if (!question) return json({ error: 'Ask a question.' }, 400)
+  // one conversation per invite, kept on the server; without invites, each question stands alone
+  const thread = invite ? await loadThread(kv, invite.hash) : { turns: [] }
+  const messages = contextWindow(thread.turns, question, setting(env.HISTORY_CHARS, 150_000, { min: 4000, max: 600_000 }))
 
   const day = today()
   // daily limits: per invite, and one budget for the whole site (fails closed)
@@ -81,7 +85,7 @@ async function chat(req, env, ctx) {
   }
   const spends = []
   try {
-    const out = await ask({
+    const out = await deps.ask({
       messages, env, kv, fetchJson, content,
       model: env.MODEL || 'claude-haiku-5-5',
       effort: ['low', 'medium', 'high', 'xhigh', 'max'].includes(env.EFFORT) ? env.EFFORT : 'high',
@@ -89,14 +93,30 @@ async function chat(req, env, ctx) {
       maxTokens: setting(env.MAX_TOKENS, 8000, { min: 1000, max: 16000 }),
       onCost: (usd) => spends.push(recordSpend(kv, day, usd).catch(() => {})),
     })
+    const at = new Date().toISOString()
+    if (invite) {
+      thread.turns.push({ role: 'user', content: question, at }, { role: 'assistant', content: out.answer, sources: out.sources, results: out.results, at })
+      await saveThread(kv, invite.hash, thread)
+    }
     ctx.waitUntil(Promise.all(spends))
-    console.log(JSON.stringify({ event: 'answer', tools: out.tools.map((t) => t.tool), steps: out.tools.length, cost: Math.round(out.cost * 1e6) / 1e6, refused: Boolean(out.refused) }))
-    return json({ answer: out.answer, sources: out.sources, results: out.results })
+    console.log(JSON.stringify({ event: 'answer', tools: out.tools.map((t) => t.tool), steps: out.tools.length, context_turns: messages.length, cost: Math.round(out.cost * 1e6) / 1e6, refused: Boolean(out.refused) }))
+    return json({ answer: out.answer, sources: out.sources, results: out.results, at })
   } catch (e) {
     ctx.waitUntil(Promise.all(spends))
     console.error('answer failed', e?.status || '', String(e?.message || e).slice(0, 200))
     return json({ error: 'Something went wrong while answering. Try again in a moment.' }, 502)
   }
+}
+
+// The person's conversation: GET to show it, POST /api/thread/erase to erase it.
+async function threadRoute(req, env, erase = false) {
+  const setup = setupError(env)
+  if (setup) return json({ error: setup }, 503)
+  const invite = await currentInvite(req, env, env.KV)
+  if (!invite) return json({ error: 'Enter your invite code first.', gate: 'invite' }, 401)
+  if (erase) { await eraseThread(env.KV, invite.hash); return json({ ok: true }) }
+  const thread = await loadThread(env.KV, invite.hash)
+  return json({ turns: publicTurns(thread.turns) })
 }
 
 async function redeemCode(req, env) {
@@ -139,11 +159,13 @@ export default {
     if (path.startsWith('/api/')) {
       if (req.method === 'GET' && path === '/api/session') return session(req, env)
       if (req.method === 'GET' && path.startsWith('/api/results/')) return result(path.slice('/api/results/'.length), env)
+      if (req.method === 'GET' && path === '/api/thread') return threadRoute(req, env)
       if (req.method === 'POST') {
         if (!sameOrigin(req, env)) return json({ error: 'Not from this site.' }, 403)
         if (path === '/api/chat') return chat(req, env, ctx)
         if (path === '/api/invite') return redeemCode(req, env)
         if (path === '/api/request-access') return requestAccess(req, env)
+        if (path === '/api/thread/erase') return threadRoute(req, env, true)
       }
       return json({ error: 'Not found.' }, 404)
     }

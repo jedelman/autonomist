@@ -31,12 +31,11 @@ SUBREQUEST_BUDGET = "40"
 INVITE_REQUIRED = "true"
 
 # Storage for invites, the access-request list, limits, spend, saved results and case-study
-# proposals. Create it once and paste the id:
-#   npx wrangler kv namespace create KV
-# Without it the site still serves pages, but the chat refuses (it fails closed).
-# [[kv_namespaces]]
-# binding = "KV"
-# id = "<paste id>"
+# proposals. Created by Jason 2026-11-20. Without it the site still serves pages, but the chat
+# refuses (it fails closed).
+[[kv_namespaces]]
+binding = "KV"
+id = "9f7312ae8d65430cbd61411205e6359d"
 
 # Secrets (never in this file):
 #   npx wrangler secret put ANTHROPIC_API_KEY

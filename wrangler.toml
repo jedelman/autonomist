@@ -4,6 +4,9 @@ name = "autonomist"
 main = "worker/index.js"
 compatibility_date = "2026-09-01"
 account_id = "543fde7feabd0af945bfae926ceea7ad"
+# Keep variables set in the dashboard that this file doesn't list, so a deploy never wipes one
+# entered there as plain text. (Secrets are always kept.)
+keep_vars = true
 
 # The site is built into public/ before every deploy (scripts/build.mjs).
 [build]

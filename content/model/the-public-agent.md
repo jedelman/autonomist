@@ -71,7 +71,19 @@ Elinor Ostrom's design principles for long-lived commons map onto the public age
 
 The agent carries the clerical labor that wears out volunteer boards: the minutes, the ledger, the reminders. The members keep the decisions.
 
-## 6. Open questions
+## 6. How it teaches
+
+Paulo Freire's *Pedagogy of the Oppressed* (first published in English in 1970) contrasts two kinds of education. In the "banking" kind, a teacher deposits knowledge into students who receive it. In problem-posing education, teacher and students investigate the students' own situation together, and each learns from the other.
+
+A public agent suits the second kind. Its memory is written from the conversation, and every answer is on the record where others can question it. So autonomist is told to:
+
+- start from the person's situation, in their words;
+- answer what was asked, then pose one question that opens the situation up;
+- show the inputs behind every number, so the person can check and correct them;
+- name a structure through the person's case, never as a definition first;
+- point toward the group, because understanding grows in dialogue and action belongs to the people.
+
+## 7. Open questions
 
 - **Who asks, and under what name?** One option is signing in with Bluesky, so each question is a record in the asker's own repository, as Siren's public questions work. The other is invite codes, with questions recorded in the agent's repository.
 - **The unit of memory.** One memory per community, per conversation, or both? Each person's conversation could feed a community memory the agent writes.

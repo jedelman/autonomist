@@ -35,17 +35,55 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   Access JWT on every `/api/admin/*` request (`worker/access.js`, from Siren); never trust the plain
   email header, and never add a password or token sign-in beside it. Off (404) without
   `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`.
+- **A public agent** (Jason, 2026-11-20). Design: `content/model/the-public-agent.md`. His rules:
+  - "ONLY the agent writes the memory." No person, steward included, edits it; corrections are new
+    turns, and the summarizer (`worker/memory.js`) may use only what the conversation says.
+  - "All user interactions with the agent are public." Questions, answers and how they were reached
+    (tools, inputs, results, sources) are a public record. The chat notice, the about page and the
+    system prompt say so.
+  - "The agent holds no authority to act - merely to aggregate and process data. The data is public
+    and portable." Never give it a tool that files, signs, pays, sends or decides for anyone.
+  - "Questions and reasoning are queryable and portable. atproto fits." Records go toward atproto,
+    under `org.jason-edelman.autonomist.*` (proposed); keep the stored shape exportable.
+  - "Nothing that's publication-risk should ever go to the agent. Disclaim but don't gate." Warn
+    plainly everywhere people type; add no review gate in front of the conversation.
+- **One conversation per invite, with the agent's memory.** `worker/thread.js` keeps it in KV as
+  `thread:<invite hash>`: questions, answers, each answer's sources and saved results, and the memory.
+  Not yet the trace (tools, inputs, results): it joins the record with the public pages. Never raw
+  thinking. When the turns after the memory pass `HISTORY_CHARS`,
+  `memory.js` folds the oldest into a plain-text summary (a separate priced call, after the answer,
+  under the day's spend cap). The model sees the memory, inside the first user message (never the
+  system prompt), then every later turn. Not the API's compaction blocks: the memory must stay
+  readable, downloadable and portable across models. No "new conversation" button; "Download my
+  conversation" and "Erase my conversation" (withdrawal) stay. Revoking an invite erases its thread;
+  a year unused expires it.
+- **The agent's own PDS** (Jason, 2026-11-21: "we should use it, and we should help maintain it").
+  autonomist's atproto account lives on a PDS this Worker runs: pds.js (`@pdsjs/cloudflare`, MIT,
+  pinned exactly; upstream calls itself experimental). `worker/main.js` sends `HOSTNAME`
+  (`pds.autonomist.jason-edelman.org`) to pds.js and everything else to the site; the site's
+  `/.well-known/atproto-did` reads the DID from the PDS, so the handle `autonomist.jason-edelman.org`
+  has one source of truth. One account only, the agent's.
+  - `PDS_PASSWORD` gates `/init` until the account exists; without it `/init` is open to anyone.
+    It was set before the first deploy carrying the PDS (2026-11-21). Never deploy the PDS to a
+    Worker without it.
+  - The DID's first rotation key is a recovery key whose private half Jason holds (made at
+    `admin.jason-edelman.org/keys/`). The signing key is made by `scripts/birth.mjs` in memory and
+    lives only in the PDS. Never write it to disk or print it.
+  - `worker/account-ui-stub.js` and the `[alias]` stand in for `@pdsjs/account-ui`, which isn't on
+    npm (2.5.2); remove both when it is.
 - **Keep these projects separate unless Jason links them:** Ghent Streets (Jason, 2026-11-20).
 
 ## Layout
 
 - `model/` the engine model (Node and browser), its driver and generated results.
-- `worker/` the Worker: `index.js` (routes, limits, headers), `admin.js` and `access.js` (the steward's page), `agent.js` (the tool loop, the system
-  prompt), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
+- `worker/` the Worker: `main.js` (the entry: the PDS's host to pds.js, the rest to the site), `index.js` (the site's routes, limits, headers), `admin.js` and `access.js` (the steward's page), `agent.js` (the tool loop, the system
+  prompt), `thread.js` and `memory.js` (each invite's one conversation and its memory), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
   2026-11-20), `invites.js` and `limits.js` (adapted from Siren's, MIT).
 - `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers and case
   studies; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on
-  deploy); `scripts/invites.mjs` the steward's CLI.
+  deploy); `scripts/invites.mjs` the steward's CLI; `scripts/birth.mjs` gives an agent its account on its own PDS
+  (autonomist's by default; `--handle` and `--pds` for another agent, `--dry-run` to only build the
+  genesis operation).
 - `test/` `npm test` (node:test; no network).
 
 ## Checks before pushing
@@ -55,3 +93,8 @@ npm test
 node scripts/build.mjs
 npx wrangler deploy --dry-run --outdir /tmp/autonomist-dist
 ```
+
+To try the PDS locally, `wrangler dev` needs a config without `routes` (with them it rewrites every
+request's host): copy `wrangler.toml` to `.wrangler-test.toml` (git-ignored) minus the `routes`
+block, then `npx wrangler dev -c .wrangler-test.toml --var HOSTNAME:localhost --var
+PDS_PASSWORD:<test> --var JWT_SECRET:<test>`. `localhost` is the PDS; `127.0.0.1` is the site.

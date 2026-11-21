@@ -22,8 +22,8 @@ test('POSTs from elsewhere are refused', async () => {
 })
 
 test('the chat fails closed without storage, and asks for an invite without one', async () => {
-  assert.equal((await post(env({ KV: undefined }), '/api/chat', { messages: [{ role: 'user', content: 'hi' }] })).status, 503)
-  const r = await post(env(), '/api/chat', { messages: [{ role: 'user', content: 'hi' }] })
+  assert.equal((await post(env({ KV: undefined }), '/api/chat', { question: 'hi' })).status, 503)
+  const r = await post(env(), '/api/chat', { question: 'hi' })
   assert.equal(r.status, 401)
   assert.equal((await r.json()).gate, 'invite')
 })
@@ -62,6 +62,54 @@ test('the site-wide spending cap stops questions', async () => {
   await e.KV.put(await inviteKey(code), JSON.stringify({ label: 't' }))
   const cookie = (await post(e, '/api/invite', { code })).headers.get('Set-Cookie').split(';')[0]
   await e.KV.put(`spend:${new Date().toISOString().slice(0, 10)}:x`, '', { metadata: { micros: 5000 } })
-  const r = await post(e, '/api/chat', { messages: [{ role: 'user', content: 'hi' }] }, { Cookie: cookie })
+  const r = await post(e, '/api/chat', { question: 'hi' }, { Cookie: cookie })
   assert.equal(r.status, 429)
+})
+
+import { deps } from '../worker/index.js'
+import { contextWindow } from '../worker/thread.js'
+
+async function invited(e) {
+  const code = newCode()
+  await e.KV.put(await inviteKey(code), JSON.stringify({ label: 't' }))
+  const cookie = (await post(e, '/api/invite', { code })).headers.get('Set-Cookie').split(';')[0]
+  return { cookie, hash: (await inviteKey(code)).slice(7) }
+}
+
+test('one conversation per invite: kept, shown, fed back to the model, erased', async () => {
+  const e = env()
+  const { cookie } = await invited(e)
+  const seen = []
+  const real = deps.ask
+  deps.ask = async ({ messages }) => { seen.push(messages); return { answer: `answer ${seen.length}`, sources: [{ url: '/tools/', title: 'Tools' }], results: [], tools: [], cost: 0 } }
+  try {
+    assert.equal((await post(e, '/api/chat', { question: 'first?' }, { Cookie: cookie })).status, 200)
+    assert.equal((await post(e, '/api/chat', { question: 'second?' }, { Cookie: cookie })).status, 200)
+    assert.deepEqual(seen[1].map((m) => m.content), ['first?', 'answer 1', 'second?'])
+    const t = await (await call(e, '/api/thread', { headers: { Cookie: cookie } })).json()
+    assert.deepEqual(t.turns.map((x) => x.content), ['first?', 'answer 1', 'second?', 'answer 2'])
+    assert.equal(t.turns[1].sources[0].url, '/tools/')
+    assert.equal((await call(e, '/api/thread')).status, 401)
+    assert.equal((await post(e, '/api/thread/erase', {}, { Cookie: cookie })).status, 200)
+    assert.equal((await (await call(e, '/api/thread', { headers: { Cookie: cookie } })).json()).turns.length, 0)
+  } finally { deps.ask = real }
+})
+
+test('a failed answer saves nothing, so the question can be asked again', async () => {
+  const e = env()
+  const { cookie, hash } = await invited(e)
+  const real = deps.ask
+  deps.ask = async () => { throw new Error('boom') }
+  try {
+    assert.equal((await post(e, '/api/chat', { question: 'q' }, { Cookie: cookie })).status, 502)
+    assert.equal(e.KV.m.has(`thread:${hash}`), false)
+  } finally { deps.ask = real }
+})
+
+test('the context window keeps the newest turns within budget and starts with a question', () => {
+  const turns = [{ role: 'user', content: 'a'.repeat(50) }, { role: 'assistant', content: 'b'.repeat(50) }, { role: 'user', content: 'c'.repeat(10) }, { role: 'assistant', content: 'd'.repeat(10) }]
+  assert.deepEqual(contextWindow(turns, 'now', 30).map((m) => m.content), ['c'.repeat(10), 'd'.repeat(10), 'now'])
+  // the answer fits but its question doesn't: the window never opens on an answer
+  assert.deepEqual(contextWindow(turns, 'now', 15).map((m) => m.content), ['now'])
+  assert.equal(contextWindow(turns, 'now', 1000).length, 5)
 })

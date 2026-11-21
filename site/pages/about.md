@@ -15,22 +15,25 @@ autonomist is a public-interest project of Jason Edelman. It is not a company, i
 
 ## The chat agent
 
-The chat is an AI: Claude, by Anthropic. It can be wrong. It computes with the engine model and reads public records, and it says which numbers it computed and which it assumed.
+autonomist's chat is a **public agent**. Its conversations are a public record, the way a public meeting's minutes are, and the record belongs to the people who use it, not to the host.
 
-- **Your questions go to Anthropic** to be answered. autonomist doesn't store conversations: the chat keeps yours in your browser tab, and it's gone when you close the tab.
-- **It reads buildings, not people.** The building lookup takes an address only. It never shows the owner or sale price of a home, and it shows an apartment or commercial building's owner only when the owner is plainly an organization.
-- **Saved results are public.** When you ask for a link, the result page shows the computation and a title, rendered from the inputs by code. Nothing else from your conversation appears there.
-- **Case-study proposals go to a person.** The agent can send a draft to the project's steward; nothing is published until every source has been checked.
+- **Everything you say to it is public.** Your questions, its answers, and how it reached them (the tools it used, their inputs and results, its sources) are published and portable, and anyone may read or copy them. Don't share anything you wouldn't post in public: not your private details, and not anyone else's. Nothing stops you; this is the warning.
+- **It's an AI** (Claude, by Anthropic), so your questions also go to Anthropic to be answered. It can be wrong. It computes with the engine model and reads public records, and says which numbers it computed and which it assumed.
+- **Only the agent writes its memory.** When a conversation grows past what the model reads at once, autonomist summarizes the oldest part in plain text, from the conversation alone, and keeps it with the conversation. You can read it above the chat. Nobody edits it by hand.
+- **It has no authority to act.** It gathers and processes public information and computes. It never files, signs, pays, decides or acts for anyone.
+- **It reads buildings, not people.** The building lookup takes an address only. It never shows a home's owner or sale price, and it shows an apartment or commercial building's owner only when the owner is plainly an organization.
+- **Saved results and case studies.** A link you ask for shows the computation and a title, rendered by code. Case-study drafts go to a person, who checks every source before anything is published as a case study.
+- **One conversation per invite, yours to download or withdraw.** You pick up where you left off on any browser using your invite. "Download my conversation" gives you all of it, the memory included. "Erase my conversation" withdraws it from autonomist. Copies others have already made can't be called back. That is what public means.
 
 ## Request access
 
-The chat is invite-only while it's new. The request form asks for an email (and, if you like, a name, an organization and a note). It's used only to send you an invite and news about autonomist, it's kept out of the public source code, and it's deleted on request.
+The chat is invite-only while it's new. The request form asks for an email (and, if you like, a name, an organization and a note). It's used only to send you an invite and news about autonomist, it is never published, and it's deleted on request.
 
 <!-- TODO (Jason): the contact address for deletion requests and questions. -->
 
 ## Limits and logs
 
-To keep costs bounded, the site counts questions per invite and per day, and spending for the whole site per day. Visitors are counted by a salted hash of their network address, never the address itself. The server logs which tools an answer used and what it cost, never the question or the answer. There are no trackers or analytics.
+To keep costs bounded, the site counts questions per invite and per day, and spending for the whole site per day. Visitors are counted by a salted hash of their network address, never the address itself. There are no trackers or analytics. The request form's email addresses are not part of the public record.
 
 ## Source
 

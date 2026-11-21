@@ -78,5 +78,11 @@ body.chat main { max-width: 52rem; display: flex; flex-direction: column; min-he
 #composer { display: flex; gap: .5rem; position: sticky; bottom: 0; background: var(--bg); padding: .6rem 0; border-top: 1px solid var(--line); }
 #composer textarea { flex: 1; resize: vertical; min-height: 3rem; max-height: 14rem; }
 #status { min-height: 1.4em; font-size: .9rem; color: var(--muted); }
+.erase { margin: .2rem 0 0; text-align: right; }
+.memory { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: .6rem .9rem; margin: .5rem 0; }
+.memory summary { cursor: pointer; font-weight: 600; }
+.memory p.muted { font-size: .88rem; margin: .4rem 0 .6rem; }
+#memory-text { white-space: pre-wrap; font-size: .93rem; }
+a.linklike, button.linklike { background: none; border: 0; padding: 0; color: var(--muted); font-size: .8rem; text-decoration: underline; text-underline-offset: 2px; }
 [hidden] { display: none !important; }
 @media (max-width: 40rem) { h1 { font-size: 1.6rem; } body { font-size: 1rem; } }

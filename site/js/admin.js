@@ -47,7 +47,7 @@
     }) : [el('li', {}, el('p', {}, 'Nobody is waiting.'))]))
     $('invites').replaceChildren(s.invites.length ? table(['Label', 'Browsers used', 'Made', ''], s.invites.map((i) => {
       const b = el('button', { type: 'button', class: 'secondary' }, 'Revoke')
-      b.addEventListener('click', async () => { if (!confirm(`Revoke "${i.label}"? Everyone using it loses access.`)) return; try { await api('revoke', { hash: i.hash }); load() } catch (e) { say(e.message, true) } })
+      b.addEventListener('click', async () => { if (!confirm(`Revoke "${i.label}"? It stops working everywhere, and its conversation is erased.`)) return; try { await api('revoke', { hash: i.hash }); load() } catch (e) { say(e.message, true) } })
       return [i.label || '(no label)', `${i.used} of ${i.max_uses ?? '∞'}`, i.created, b]
     })) : el('p', { class: 'muted' }, 'No invites yet.'))
     $('proposals').replaceChildren(...(s.proposals.length ? s.proposals.map((p) => {

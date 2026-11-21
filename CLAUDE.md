@@ -57,17 +57,33 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   readable, downloadable and portable across models. No "new conversation" button; "Download my
   conversation" and "Erase my conversation" (withdrawal) stay. Revoking an invite erases its thread;
   a year unused expires it.
+- **The agent's own PDS** (Jason, 2026-11-21: "we should use it, and we should help maintain it").
+  autonomist's atproto account lives on a PDS this Worker runs: pds.js (`@pdsjs/cloudflare`, MIT,
+  pinned exactly; upstream calls itself experimental). `worker/main.js` sends `HOSTNAME`
+  (`pds.autonomist.jason-edelman.org`) to pds.js and everything else to the site; the site's
+  `/.well-known/atproto-did` reads the DID from the PDS, so the handle `autonomist.jason-edelman.org`
+  has one source of truth. One account only, the agent's.
+  - `PDS_PASSWORD` gates `/init` until the account exists; without it `/init` is open to anyone.
+    It was set before the first deploy carrying the PDS (2026-11-21). Never deploy the PDS to a
+    Worker without it.
+  - The DID's first rotation key is a recovery key whose private half Jason holds (made at
+    `admin.jason-edelman.org/keys/`). The signing key is made by `scripts/birth.mjs` in memory and
+    lives only in the PDS. Never write it to disk or print it.
+  - `worker/account-ui-stub.js` and the `[alias]` stand in for `@pdsjs/account-ui`, which isn't on
+    npm (2.5.2); remove both when it is.
 - **Keep these projects separate unless Jason links them:** Ghent Streets (Jason, 2026-11-20).
 
 ## Layout
 
 - `model/` the engine model (Node and browser), its driver and generated results.
-- `worker/` the Worker: `index.js` (routes, limits, headers), `admin.js` and `access.js` (the steward's page), `agent.js` (the tool loop, the system
+- `worker/` the Worker: `main.js` (the entry: the PDS's host to pds.js, the rest to the site), `index.js` (the site's routes, limits, headers), `admin.js` and `access.js` (the steward's page), `agent.js` (the tool loop, the system
   prompt), `thread.js` and `memory.js` (each invite's one conversation and its memory), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
   2026-11-20), `invites.js` and `limits.js` (adapted from Siren's, MIT).
 - `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers and case
   studies; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on
-  deploy); `scripts/invites.mjs` the steward's CLI.
+  deploy); `scripts/invites.mjs` the steward's CLI; `scripts/birth.mjs` gives an agent its account on its own PDS
+  (autonomist's by default; `--handle` and `--pds` for another agent, `--dry-run` to only build the
+  genesis operation).
 - `test/` `npm test` (node:test; no network).
 
 ## Checks before pushing
@@ -77,3 +93,8 @@ npm test
 node scripts/build.mjs
 npx wrangler deploy --dry-run --outdir /tmp/autonomist-dist
 ```
+
+To try the PDS locally, `wrangler dev` needs a config without `routes` (with them it rewrites every
+request's host): copy `wrangler.toml` to `.wrangler-test.toml` (git-ignored) minus the `routes`
+block, then `npx wrangler dev -c .wrangler-test.toml --var HOSTNAME:localhost --var
+PDS_PASSWORD:<test> --var JWT_SECRET:<test>`. `localhost` is the PDS; `127.0.0.1` is the site.

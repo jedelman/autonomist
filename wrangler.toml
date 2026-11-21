@@ -1,12 +1,18 @@
-# autonomist: the site, the chat agent and saved results, as one Worker.
+# autonomist: the site, the chat agent, saved results and the agent's own atproto PDS, as one Worker.
 # Deploy: `npx wrangler deploy` (runs the build first). Local: `npx wrangler dev`.
 name = "autonomist"
-main = "worker/index.js"
+main = "worker/main.js"
 compatibility_date = "2026-09-01"
 account_id = "543fde7feabd0af945bfae926ceea7ad"
 # Keep variables set in the dashboard that this file doesn't list, so a deploy never wipes one
 # entered there as plain text. (Secrets are always kept.)
 keep_vars = true
+
+# Two hostnames. The site, and autonomist's PDS (worker/main.js sends HOSTNAME to pds.js).
+routes = [
+  { pattern = "autonomist.jason-edelman.org", custom_domain = true },
+  { pattern = "pds.autonomist.jason-edelman.org", custom_domain = true },
+]
 
 # The site is built into public/ before every deploy (scripts/build.mjs).
 [build]
@@ -32,6 +38,11 @@ DAILY_BUDGET_USD = "3"
 SUBREQUEST_BUDGET = "40"
 # The chat is invite-only unless this is "false".
 INVITE_REQUIRED = "true"
+# The PDS (pds.js reads these names).
+HOSTNAME = "pds.autonomist.jason-edelman.org"
+RELAY_URL = "https://bsky.network"
+APPVIEW_URL = "https://api.bsky.app"
+APPVIEW_DID = "did:web:api.bsky.app"
 
 # Storage for invites, the access-request list, limits, spend, saved results and case-study
 # proposals. Created by Jason 2026-11-20. Without it the site still serves pages, but the chat
@@ -50,11 +61,34 @@ id = "9f7312ae8d65430cbd61411205e6359d"
 #   npx wrangler secret put ANTHROPIC_API_KEY
 #   npx wrangler secret put INVITE_SECRET   # any long random string; signs invite cookies
 #   npx wrangler secret put IP_SALT         # any random string; hashes visitors for limits
+#   npx wrangler secret put PDS_PASSWORD    # the PDS account's password. Set it BEFORE the first
+#                                           # deploy with the PDS: until the account exists, it is
+#                                           # what gates /init, which is open without it.
+#   npx wrangler secret put JWT_SECRET      # signs the PDS's session tokens
 
-# The hostname. Either add autonomist.jason-edelman.org as a Custom Domain on this Worker in the
-# Cloudflare dashboard (Workers > autonomist > Settings > Domains), or uncomment this so deploys
-# create it (needs no existing DNS record for the name):
-# routes = [{ pattern = "autonomist.jason-edelman.org", custom_domain = true }]
+# autonomist's own atproto account, on a PDS it runs itself: pds.js (MIT, @pdsjs/cloudflare).
+# One account, the agent's. Its handle is autonomist.jason-edelman.org.
+[[durable_objects.bindings]]
+name = "PDS"
+class_name = "PDSDurableObject"
+
+[[migrations]]
+tag = "pds-v1"
+new_sqlite_classes = ["PDSDurableObject"]
+
+# Blobs (images), and the scheduled backups pds.js writes. Separate buckets: the backup retention
+# policy deletes freely inside its own.
+[[r2_buckets]]
+binding = "BLOBS"
+bucket_name = "autonomist-pds-blobs"
+
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "autonomist-pds-backups"
+
+# @pdsjs/account-ui isn't on npm (pds.js 2.5.2); this stub stands in for it. See the file.
+[alias]
+"@pdsjs/account-ui" = "./worker/account-ui-stub.js"
 
 # Console output only: no invocation logs (they would carry request URLs and headers).
 [observability]

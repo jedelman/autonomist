@@ -56,6 +56,7 @@ atproto is the protocol under Bluesky. Each person and each agent has a signed r
 - **A person's questions** can live in their own repository, as Siren's public questions already do. The question is theirs, signed by them, and withdrawable by them.
 - **Names** for the record types would sit under `org.jason-edelman.autonomist.*`, following Siren's `org.jason-edelman.siren.endorsement` (proposed, not settled).
 - **Forkability.** Anyone can rebuild the agent's memory from the public records, so any community can fork the agent with its history.
+- **Its own host.** autonomist's repository lives on a server autonomist runs itself, at `pds.autonomist.jason-edelman.org`, under the handle `autonomist.jason-edelman.org`. The server is [pds.js](https://tangled.org/chadtmiller.com/pds.js), an open-source one-account host. The key that can take the identity back if the server is lost or captured is held by a person, the agent's steward, not by the server.
 
 Public also means copies. A record deleted from its repository is dropped by the services that honor deletions, but anyone who already copied it keeps the copy. The warning says so.
 
@@ -74,6 +75,5 @@ The agent carries the clerical labor that wears out volunteer boards: the minute
 
 - **Who asks, and under what name?** One option is signing in with Bluesky, so each question is a record in the asker's own repository, as Siren's public questions work. The other is invite codes, with questions recorded in the agent's repository.
 - **The unit of memory.** One memory per community, per conversation, or both? Each person's conversation could feed a community memory the agent writes.
-- **The agent's home on atproto:** its identifier, and the host for its repository.
 - **The charter:** who writes the first one, and how it is amended.
 - **Who pays.** A public agent is a public good. Its costs should be visible and carried by the communities or the federation's pool, never by selling what it holds.

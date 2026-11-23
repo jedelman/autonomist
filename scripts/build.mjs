@@ -8,6 +8,7 @@
 //   site/chat.html, site/results.html   the chat and the saved-result shell
 //   content/model/*.md        technical papers; model/results.md is published as /model/results/
 //   content/case-studies/*.md case studies (each reviewed before it is added)
+//   content/journal/*.md      the news journal: commentary on what autonomist reads (checked by scripts/journal-check.mjs)
 //   site/css, site/js, site/favicon.svg, and model/lec-core.cjs (as /js/lec-core.js)
 // Also writes public/content-index.json, which the agent reads to cite what is published.
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync, copyFileSync, existsSync } from 'node:fs'
@@ -39,7 +40,7 @@ function page({ title, description = '', content, section = '', scripts = '', bo
     .replace('{{mainClass}}', wide ? 'wide' : '')
     .replace('{{content}}', content)
     .replace('{{scripts}}', scripts)
-  for (const s of ['chat', 'case-studies', 'model', 'tools']) html = html.replace(`{{nav:${s}}}`, s === section ? ' aria-current="page"' : '')
+  for (const s of ['chat', 'journal', 'case-studies', 'model', 'tools']) html = html.replace(`{{nav:${s}}}`, s === section ? ' aria-current="page"' : '')
   return html
 }
 
@@ -69,7 +70,7 @@ copyDir(join(root, 'site/js'), join(out, 'js'))
 copyFileSync(join(root, 'model/lec-core.cjs'), join(out, 'js/lec-core.js'))
 copyFileSync(join(root, 'site/favicon.svg'), join(out, 'favicon.svg'))
 
-const index = { 'case-studies': [], model: [], tools: [] }
+const index = { journal: [], 'case-studies': [], model: [], tools: [] }
 
 // papers: content/model/*.md, then the generated results
 const papers = []
@@ -94,6 +95,16 @@ for (const name of (existsSync(csDir) ? readdirSync(csDir) : []).filter((n) => n
   const slug = name.replace(/\.md$/, ''), url = `/case-studies/${slug}/`
   write(`case-studies/${slug}/index.html`, page({ title: `${meta.title} · autonomist`, description: meta.summary, content: md(body), section: 'case-studies' }))
   index['case-studies'].push({ slug, title: meta.title, summary: meta.summary, url, text: body.slice(0, 24000) })
+}
+
+// the journal: content/journal/*.md, newest first
+const jDir = join(root, 'content/journal')
+const journal = existsSync(jDir) ? readdirSync(jDir).filter((n) => n.endsWith('.md')).map((name) => ({ name, ...frontMatter(read(`content/journal/${name}`)) })) : []
+journal.sort((a, b) => b.name.localeCompare(a.name))
+for (const { name, meta, body } of journal) {
+  const slug = name.replace(/\.md$/, ''), url = `/journal/${slug}/`
+  write(`journal/${slug}/index.html`, page({ title: `${meta.title} · autonomist`, description: meta.summary, content: md(body), section: 'journal' }))
+  index.journal.push({ slug, title: meta.title, summary: `${meta.date} · on ${meta.outlet}: ${meta.summary}`, url, text: body.slice(0, 24000) })
 }
 
 // tools
@@ -138,4 +149,4 @@ for (const [src, target, section, bodyClass] of [['site/chat.html', 'chat/index.
 write('404.html', page({ title: 'Not found · autonomist', content: '<h1>Not found</h1><p>There is no page at this address. Try the <a href="/">front page</a>.</p>' }))
 write('robots.txt', 'User-agent: *\nDisallow: /api/\nDisallow: /results/\nDisallow: /admin/\n')
 write('content-index.json', JSON.stringify(index))
-console.log(`built public/: ${papers.length} papers, ${index['case-studies'].length} case studies, ${tools.length} tools`)
+console.log(`built public/: ${papers.length} papers, ${index.journal.length} journal entries, ${index['case-studies'].length} case studies, ${tools.length} tools`)

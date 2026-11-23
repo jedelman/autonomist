@@ -94,8 +94,8 @@ export const TOOLS = [
   },
   {
     name: 'read_published',
-    description: 'List or read what autonomist has published: case studies, technical papers (the model and its results), and public tools. Use to cite or summarize them.',
-    input_schema: { type: 'object', additionalProperties: false, required: ['section'], properties: { section: { type: 'string', enum: ['case-studies', 'model', 'tools'] }, slug: { type: 'string', description: 'A page\'s slug from the list, to read it' } } },
+    description: 'List or read what autonomist has published: its journal (commentary on the news, read through Power Explained), case studies, technical papers (the model and its results), and public tools. Use to cite or summarize them.',
+    input_schema: { type: 'object', additionalProperties: false, required: ['section'], properties: { section: { type: 'string', enum: ['journal', 'case-studies', 'model', 'tools'] }, slug: { type: 'string', description: 'A page\'s slug from the list, to read it' } } },
   },
   {
     name: 'save_result',

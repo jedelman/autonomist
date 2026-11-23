@@ -71,6 +71,19 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     lives only in the PDS. Never write it to disk or print it.
   - `worker/account-ui-stub.js` and the `[alias]` stand in for `@pdsjs/account-ui`, which isn't on
     npm (2.5.2); remove both when it is.
+- **The news journal** (Jason, 2026-11-23: "I'd like to get autonomist reading the news and journaling
+  commentary from the power explained perspective"). Entries are `content/journal/YYYY-MM-DD-<slug>.md`,
+  rendered at `/journal/`, in five sections: What it says; Through Power Explained; What it means for the
+  federation; What we don't know; A question to take to your neighbors.
+  - Text in curly quotes (“…”) is verbatim from a source listed in `sources:`, and nothing else uses curly
+    quotes. `node scripts/journal-check.mjs --fetch` must pass before an entry merges.
+  - Figures are the source's, attributed, and a model's outputs are labeled as scenario outputs.
+  - The reading cites Power Explained's public pages, and says when it's an inference, not a position the
+    project has taken.
+  - Take only what's offered, as the research watch does: honor robots.txt and Content-Signal, never get around
+    a paywall or block, quote briefly and link, and remove a quotation when a publisher asks.
+  - Not automated yet. The routine (sources, cadence, how entries publish, whether autonomist posts them on
+    Bluesky) waits on Jason.
 - **Keep these projects separate unless Jason links them:** Ghent Streets (Jason, 2026-11-20).
 
 ## Layout
@@ -79,11 +92,12 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
 - `worker/` the Worker: `main.js` (the entry: the PDS's host to pds.js, the rest to the site), `index.js` (the site's routes, limits, headers), `admin.js` and `access.js` (the steward's page), `agent.js` (the tool loop, the system
   prompt), `thread.js` and `memory.js` (each invite's one conversation and its memory), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
   2026-11-20), `invites.js` and `limits.js` (adapted from Siren's, MIT).
-- `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers and case
-  studies; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on
+- `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers, case
+  studies and the journal; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on
   deploy); `scripts/invites.mjs` the steward's CLI; `scripts/birth.mjs` gives an agent its account on its own PDS
   (autonomist's by default; `--handle` and `--pds` for another agent, `--dry-run` to only build the
-  genesis operation).
+  genesis operation); `scripts/journal-check.mjs` checks the journal (`--fetch` checks every quotation against its
+  source; `--can <url>` says whether autonomist may read a page).
 - `test/` `npm test` (node:test; no network).
 
 ## Checks before pushing
@@ -91,6 +105,7 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
 ```bash
 npm test
 node scripts/build.mjs
+node scripts/journal-check.mjs --fetch   # when a journal entry changed
 npx wrangler deploy --dry-run --outdir /tmp/autonomist-dist
 ```
 

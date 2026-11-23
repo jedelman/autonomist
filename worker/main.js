@@ -8,6 +8,8 @@ import pds, { PDSDurableObject } from '@pdsjs/cloudflare'
 import site, { withSecurity } from './index.js'
 import { runBot } from './bot/index.js'
 import { COLLECTION, entryHtml, fillShell, listItems, listHtml } from './journal-pages.js'
+import { logHtml, memoryHtml } from './thinking-pages.js'
+import { LOG, MEMORY } from './bot/log.js'
 
 export { PDSDurableObject }
 
@@ -18,6 +20,7 @@ export default {
     if (url.pathname === '/.well-known/atproto-did' && env.PDS && env.HOSTNAME) return handleDid(env, ctx)
     if (req.method === 'GET' && env.PDS && env.HOSTNAME) {
       if (url.pathname === '/journal/') return journalIndex(req, env, ctx)
+      if (url.pathname === '/thinking/') return thinkingPage(req, env, ctx)
       const m = url.pathname.match(/^\/journal\/(\d{4}-\d{2}-\d{2}-[a-z0-9-]{1,80})\/?$/)
       if (m) {
         const built = await site.fetch(req, env, ctx)
@@ -69,4 +72,22 @@ async function journalIndex(req, env, ctx) {
   const list = listHtml(listItems(index.journal, records.records, env.PUBLIC_ORIGIN))
   headers.set('Cache-Control', 'public, max-age=120')
   return new Response(html.replace(/<div id="journal-list">[\s\S]*?<\/div>/, () => `<div id="journal-list">${list}</div>`), { status: 200, headers })
+}
+
+// /thinking/: the community memory and the latest run-journal reflections, from autonomist's own repository
+async function thinkingPage(req, env, ctx) {
+  const built = await site.fetch(req, env, ctx)
+  if (!built.ok) return built
+  const html = await built.text()
+  const headers = new Headers(built.headers)
+  headers.delete('Content-Length')
+  headers.set('Cache-Control', 'public, max-age=60')
+  const did = await agentDid(env, ctx)
+  const list = async (collection, limit) => (did ? fromPds(env, ctx, `/xrpc/com.atproto.repo.listRecords?repo=${did}&collection=${collection}&limit=${limit}`).then((r) => (r.ok ? r.json() : { records: [] })).catch(() => ({ records: [] })) : { records: [] })
+  const [logs, mems] = await Promise.all([list(LOG, 60), list(MEMORY, 20)])
+  const latest = [...(mems.records || [])].sort((a, b) => String(b.value?.createdAt).localeCompare(String(a.value?.createdAt)))[0]
+  const out = html
+    .replace(/<div id="thinking-memory">[\s\S]*?<\/div>/, () => `<div id="thinking-memory">${memoryHtml(latest)}</div>`)
+    .replace(/<div id="thinking-log">[\s\S]*?<\/div>/, () => `<div id="thinking-log">${logHtml(logs.records, env.PUBLIC_ORIGIN)}</div>`)
+  return new Response(out, { status: 200, headers })
 }

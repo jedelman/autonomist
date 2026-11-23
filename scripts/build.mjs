@@ -40,7 +40,7 @@ function page({ title, description = '', content, section = '', scripts = '', bo
     .replace('{{mainClass}}', wide ? 'wide' : '')
     .replace('{{content}}', content)
     .replace('{{scripts}}', scripts)
-  for (const s of ['chat', 'journal', 'case-studies', 'model', 'tools']) html = html.replace(`{{nav:${s}}}`, s === section ? ' aria-current="page"' : '')
+  for (const s of ['chat', 'journal', 'thinking', 'case-studies', 'model', 'tools']) html = html.replace(`{{nav:${s}}}`, s === section ? ' aria-current="page"' : '')
   return html
 }
 

@@ -6,6 +6,7 @@
 // posts are left to replies.js.
 import { setting } from '../limits.js'
 import { REPLY_SYSTEM, REPLY_SCHEMA, vetReply, claim, bump, isBot, threadKeyFor } from './replies.js'
+import { writeLog, memoryNote } from './log.js'
 
 const DAY = 86400_000
 
@@ -44,6 +45,7 @@ export async function runDiscussions({ env, kv, api, model, day, now = new Date(
   const daily = setting(env.BOT_REPLIES_DAILY, 150, { min: 0 })
   let calls = 0
   const done = []
+  let mem = null
   for (const root of roots) {
     if (calls >= perRun) break
     try {
@@ -63,15 +65,17 @@ export async function runDiscussions({ env, kv, api, model, day, now = new Date(
         continue
       }
       calls++
+      if (mem === null) mem = await memoryNote(kv)
       const journal = await kv.get(`journal:root:${root.uri}`, 'json')
       const note = journal ? `\n\nThe thread starts from your journal entry "${journal.title}" (${journal.url}). Its summary: ${journal.summary} Its question: ${journal.question}` : ''
       const earlier = fresh.slice(0, -1).map((f) => lineOf(f.post, me))
-      const user = `THREAD under your own post, from your post down to the latest turn (oldest first)\n${latest.path.map((p) => lineOf(p, me)).join('\n')}${earlier.length ? `\n\nOther new turns elsewhere in the thread:\n${earlier.join('\n')}` : ''}${note}\n\nPeople are talking with each other here, not to you. Join in only if you have something to contribute; otherwise listen.`
+      const user = `THREAD under your own post, from your post down to the latest turn (oldest first)\n${latest.path.map((p) => lineOf(p, me)).join('\n')}${earlier.length ? `\n\nOther new turns elsewhere in the thread:\n${earlier.join('\n')}` : ''}${note}${mem}\n\nPeople are talking with each other here, not to you. Join in only if you have something to contribute; otherwise listen.`
       const { data } = await model.structured({ system: REPLY_SYSTEM, user, schema: REPLY_SCHEMA, effort: 'medium', maxTokens: 6000 })
       const v = data.action === 'reply' ? vetReply(data.text) : { ok: false }
       if (!v.ok) {
         await kv.put(`answered:${latest.post.uri}`, data.action === 'reply' ? 'refused' : data.action === 'skip' ? 'skip' : 'listened', { expirationTtl: 30 * 86400 })
         done.push({ root: root.uri, listened: latest.post.uri })
+        if (data.action === 'listen') await writeLog(api, { kind: 'listened', context: 'discussion', subject: { uri: latest.post.uri, cid: latest.post.cid }, reflection: data.reflection, themes: data.themes })
         continue
       }
       const parent = { uri: latest.post.uri, cid: latest.post.cid }
@@ -80,6 +84,7 @@ export async function runDiscussions({ env, kv, api, model, day, now = new Date(
       await bump(kv, threadKey)
       await bump(kv, `bot:replies:${day}`)
       done.push({ root: root.uri, joined: posted.uri })
+      await writeLog(api, { kind: 'replied', context: 'discussion', subject: parent, result: posted.uri, reflection: data.reflection, themes: data.themes })
     } catch (e) {
       done.push({ root: root.uri, error: String(e?.message || e).slice(0, 160) })
     }

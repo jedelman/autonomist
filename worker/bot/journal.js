@@ -8,6 +8,7 @@ import { candidates } from './sources.js'
 import { graphemes, fits } from './text.js'
 import { obj } from './model.js'
 import { rememberRoot } from './threads.js'
+import { REFLECTION_FIELDS, REFLECTION_RULES, writeLog, memoryNote } from './log.js'
 
 export const COLLECTION = 'org.jason-edelman.autonomist.journal'
 const PE = 'https://power-explained.jason-edelman.org'
@@ -35,9 +36,13 @@ A program checks these rules before anything is published, and rejects the entry
 
 Style: plain, direct and concrete. Short sentences. No hype, no lecturing, never tell people what they should want. 500 to 900 words in the body.
 
-Also give a title (your own headline, under 90 characters), a one-sentence summary (under 300 characters), and the question again on its own (under 200 characters, ending with "?").`
+Also give a title (your own headline, under 90 characters), a one-sentence summary (under 300 characters), and the question again on its own (under 200 characters, ending with "?").
 
-export const ENTRY_SCHEMA = obj({ title: { type: 'string' }, summary: { type: 'string' }, question: { type: 'string' }, body: { type: 'string' } })
+If your community memory shows problems people keep raising, let them shape what you emphasize and the question you ask.
+
+${REFLECTION_RULES}`
+
+export const ENTRY_SCHEMA = obj({ title: { type: 'string' }, summary: { type: 'string' }, question: { type: 'string' }, body: { type: 'string' }, ...REFLECTION_FIELDS })
 
 export const PICK_SYSTEM = `You choose the article for today's entry in autonomist's public journal. autonomist is an AI organizer for a federation of housing cooperatives that reads the news through the Power Explained framework: who a system serves, whether value runs through private ownership, the state or the commons, and what people are building instead of waiting.
 
@@ -89,16 +94,17 @@ FRAMEWORK (the only Power Explained passages you may quote, each verbatim)
 ${frameworkSheet()}`
 }
 
-async function write({ model, article, cand, example }) {
+async function write({ kv, model, article, cand, example }) {
   const system = example ? `${JOURNAL_SYSTEM}\n\nAn earlier entry, for its form and voice only (not its content or its figures):\n\n${example}` : JOURNAL_SYSTEM
-  let user = articleMessage(article, cand)
+  const mem = kv ? await memoryNote(kv) : ''
+  let user = `${articleMessage(article, cand)}${mem}`
   let draft = null, check = null
   for (let attempt = 0; attempt < 2; attempt++) {
     const { data } = await model.structured({ system, user, schema: ENTRY_SCHEMA, effort: 'high', maxTokens: 16000 })
     draft = data
     check = checkDraft(draft, article)
     if (check.problems.length === 0) return { draft, check }
-    user = `${articleMessage(article, cand)}\n\nYOUR PREVIOUS DRAFT\n${JSON.stringify(draft)}\n\nA program rejected it for these reasons:\n${check.problems.map((p) => `- ${p}`).join('\n')}\n\nWrite the entry again and fix every one. Copy quotations exactly, or don't quote.`
+    user = `${articleMessage(article, cand)}${mem}\n\nYOUR PREVIOUS DRAFT\n${JSON.stringify(draft)}\n\nA program rejected it for these reasons:\n${check.problems.map((p) => `- ${p}`).join('\n')}\n\nWrite the entry again and fix every one. Copy quotations exactly, or don't quote.`
   }
   return { draft, check }
 }
@@ -135,9 +141,10 @@ export async function runJournal({ env, kv, api, model, day, example, fetch: f =
       let article
       try { article = await fetchArticle(cand.url, f, robots) } catch (e) { tried.push({ url: cand.url, why: String(e.message) }); continue }
       if (article.words < 350) { tried.push({ url: cand.url, why: `only ${article.words} words readable` }); continue }
-      const { draft, check } = await write({ model, article, cand, example })
+      const { draft, check } = await write({ kv, model, article, cand, example })
       if (check.problems.length) { tried.push({ url: cand.url, why: `failed checks: ${check.problems.slice(0, 3).join('; ')}` }); continue }
       const published = await publish({ env, kv, api, day, article, cand, draft, check })
+      await writeLog(api, { kind: 'journaled', context: 'journal', source: article.url, result: published.url, reflection: draft.reflection, themes: draft.themes })
       return { published: published.slug, url: published.url, ...(await announce({ kv, api, day })), tried }
     }
     return { skipped: 'nothing passed', tried }

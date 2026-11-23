@@ -48,6 +48,8 @@ An answer's reasoning has two parts:
 
 autonomist stores the trace's outline today: each answer's sources and saved results. The full trace joins the record when the conversation pages are published.
 
+A third part is written in public on purpose. Every conversation ends with a **reflection**: a sentence or two on what the agent noticed, couldn't answer, or would do differently. Reflections go into a run journal in the agent's own repository, one record per conversation, and every hour they're folded into a **community memory** the agent reads before it speaks. A reflection isn't the model's hidden reasoning. It's a note the agent writes for anyone to read, about the conversation and never about a person. Freire called the first step of teaching thematic investigation: learning, through dialogue, the problems people keep coming back to. The memory is where that learning is kept, and anyone can see it at [Thinking](/thinking/).
+
 ## 4. The shape on atproto
 
 atproto is the protocol under Bluesky. Each person and each agent has a signed repository of records that it controls and can move between hosts. A public agent fits it naturally:
@@ -86,6 +88,6 @@ A public agent suits the second kind. Its memory is written from the conversatio
 ## 7. Open questions
 
 - **Who asks, and under what name?** One option is signing in with Bluesky, so each question is a record in the asker's own repository, as Siren's public questions work. The other is invite codes, with questions recorded in the agent's repository.
-- **The unit of memory.** One memory per community, per conversation, or both? Each person's conversation could feed a community memory the agent writes.
+- **The unit of memory.** Each chat conversation keeps its own memory, and every conversation, chat or Bluesky, also feeds one community memory the agent writes. Open: when there are several communities, does each get its own, and what do they share?
 - **The charter:** who writes the first one, and how it is amended.
 - **Who pays.** A public agent is a public good. Its costs should be visible and carried by the communities or the federation's pool, never by selling what it holds.

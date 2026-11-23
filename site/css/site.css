@@ -86,3 +86,8 @@ body.chat main { max-width: 52rem; display: flex; flex-direction: column; min-he
 a.linklike, button.linklike { background: none; border: 0; padding: 0; color: var(--muted); font-size: .8rem; text-decoration: underline; text-underline-offset: 2px; }
 [hidden] { display: none !important; }
 @media (max-width: 40rem) { h1 { font-size: 1.6rem; } body { font-size: 1rem; } }
+
+/* /thinking/: the run journal */
+ul.log { list-style: none; padding: 0; }
+ul.log li { border-top: 1px solid var(--line); padding: 0.75rem 0; }
+ul.log li p { margin: 0.2rem 0; }

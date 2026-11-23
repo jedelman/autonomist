@@ -487,3 +487,66 @@ test('replies: a direct reply that only answers its question can be listened to,
   assert.equal(r.handled[0].listened, 'they are answering, nothing to add')
   assert.equal(await kv.get('answered:at://did:plc:u/app.bsky.feed.post/1'), 'listened')
 })
+
+test('run journal: reflections are cleaned (no handles, quotes, figures, links); a failing one is withheld, not posted', async () => {
+  const { cleanReflection, cleanMemory, writeLog } = await import('../worker/bot/log.js')
+  assert.deepEqual(cleanReflection('People keep asking who owns their building.', ['Absentee Owners', 'x', 'rent increases', 'a', 'b']), { reflection: 'People keep asking who owns their building.', themes: ['absentee owners', 'rent increases'], withheld: false })
+  for (const bad of ['As @a.example said, rents rose.', 'Rents rose 40 percent.', 'See https://x.example', 'They said “never asked” again.']) assert.equal(cleanReflection(bad, []).reflection, '', bad)
+  assert.equal(cleanMemory('## Themes people raise\n- who owns the building'), '## Themes people raise\n- who owns the building')
+  assert.equal(cleanMemory('- rents rose 40 percent'), null)
+  const api = fakeApi()
+  await writeLog(api, { kind: 'replied', context: 'mention', subject: { uri: 'at://did:plc:u/app.bsky.feed.post/1', cid: 'c' }, result: 'at://did:plc:me/app.bsky.feed.post/2', reflection: 'Rents rose 40 percent.', themes: ['rent'] })
+  const rec = api.calls.find((c) => c.nsid === 'com.atproto.repo.createRecord').opts.body
+  assert.equal(rec.collection, 'org.jason-edelman.autonomist.log')
+  assert.equal(rec.record.reflection, undefined)
+  assert.equal(rec.record.note, 'reflection withheld: it failed the checks')
+})
+
+test('run journal: a reply logs its reflection; chat answers are queued and reflected; the memory folds and is read back', async () => {
+  const { queueChatReflection, drainChatReflections, foldMemory, memoryNote } = await import('../worker/bot/log.js')
+  const kv = memoryKV()
+  await kv.put('bot:notif:seen', '2026-11-24T00:00:00.000Z')
+  const logs = []
+  const api = fakeApi({ notifications: [note(1, 'mention', human)] })
+  const real = api.call
+  api.call = async (m, nsid, o) => {
+    if (nsid === 'com.atproto.repo.createRecord' && o.body.collection === 'org.jason-edelman.autonomist.log') { logs.push({ uri: `at://did:plc:me/org.jason-edelman.autonomist.log/${logs.length}`, value: o.body.record }); return { uri: 'at://log' } }
+    if (nsid === 'com.atproto.repo.listRecords') return { records: logs }
+    return real(m, nsid, o)
+  }
+  let prompt = ''
+  const model = { structured: async ({ user, schema }) => {
+    prompt += user
+    if (schema.properties.memory) return { data: { memory: '## Themes people raise\n- who owns the building\n## Questions I couldn\'t answer well\n- none yet' } }
+    if (schema.properties.action) return { data: { action: 'reply', text: 'Who owns yours?', why: '', reflection: 'Someone asked how to find a building owner.', themes: ['absentee owners'] } }
+    return { data: { reflection: 'A chat question about co-op equity came up.', themes: ['co-op equity'] } }
+  } }
+  await runReplies({ env: {}, kv, api, model, day: '2026-11-24' })
+  assert.equal(logs[0].value.kind, 'replied')
+  assert.equal(logs[0].value.context, 'mention')
+  assert.equal(logs[0].value.reflection, 'Someone asked how to find a building owner.')
+  await queueChatReflection(kv, { question: 'How does equity work?', answer: 'Members get the paydown.' })
+  assert.deepEqual(await drainChatReflections({ env: {}, kv, api, model }), { reflected: 1 })
+  assert.equal(logs[1].value.context, 'chat')
+  const f = await foldMemory({ kv, api, model })
+  assert.equal(f.folded, 2)
+  assert.ok((await memoryNote(kv)).includes('who owns the building'))
+  assert.deepEqual(await foldMemory({ kv, api, model }), { folded: 0 })
+  // read back before the next reply
+  prompt = ''
+  await kv.put('bot:notif:seen', '2026-11-24T00:00:00.000Z')
+  const api2 = fakeApi({ notifications: [note(2, 'mention', human)] })
+  await runReplies({ env: {}, kv, api: api2, model, day: '2026-11-24' })
+  assert.ok(prompt.includes('<community_memory>') && prompt.includes('who owns the building'))
+})
+
+test('thinking page: reflections and memory are escaped, links built only from post URIs', async () => {
+  const { logHtml, memoryHtml } = await import('../worker/thinking-pages.js')
+  const html = logHtml([{ value: { kind: 'replied', context: 'discussion', subject: { uri: 'at://did:plc:u/app.bsky.feed.post/1' }, result: 'javascript:alert(1)', reflection: '<b>hi</b>', themes: ['<x>'], createdAt: '2026-11-24T01:00:00Z' } }], 'https://autonomist.jason-edelman.org')
+  assert.ok(html.includes('Joined a discussion'))
+  assert.ok(html.includes('&lt;b&gt;hi&lt;/b&gt;') && html.includes('&lt;x&gt;'))
+  assert.ok(html.includes('https://bsky.app/profile/did:plc:u/post/1'))
+  assert.ok(!html.includes('javascript:'))
+  const mem = memoryHtml({ uri: 'at://did:plc:me/org.jason-edelman.autonomist.memory/1', value: { content: '## Themes <people> raise\n- who owns it', folded: 2, createdAt: '2026-11-24T02:00:00Z' } })
+  assert.ok(mem.includes('<h3>Themes &lt;people&gt; raise</h3>') && mem.includes('<li>who owns it</li>'))
+})

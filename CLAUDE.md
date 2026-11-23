@@ -104,6 +104,17 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     notifications (`replies.js`), people talking with each other by reading its recent threads (`threads.js`, the
     latest new turn per thread, `BOT_DISCUSS_PER_RUN`). One answer per post; at most 8 a thread a day, 2 with
     self-labeled bots, `BOT_REPLIES_DAILY` in all; "skip" for spam or abuse.
+  - **The run journal and the community memory** (Jason, 2026-11-23: "Chat feeds it too. ... let's write a continuous
+    run journal to the atproto repo, and have every interaction end with a reflection. Thinking in public, similar to
+    comind."; `log.js`). Every interaction (a reply, a decision to listen, a question, a journal entry, a chat answer)
+    writes an `org.jason-edelman.autonomist.log` record: what happened, written by code, and the model's reflection
+    and themes. Reflections are about conversations, never people: no names, handles, quotes, figures or links
+    (`cleanReflection`; a failing one is withheld, the record still written). Chat answers are queued in KV
+    (`reflect:*`) and reflected on by the bot. Hourly, new reflections fold into the community memory
+    (`org.jason-edelman.autonomist.memory`, a new record per fold, so every version is kept; `cleanMemory`), which
+    only the agent writes, and which every prompt reads back inside the user message: replies, discussions, opt-in,
+    questions, the journal, and the chat. Corrections in it are claims, marked unconfirmed until a source supports
+    them or several people say so independently. Shown at `/thinking/` (`thinking-pages.js`).
   - **Opt-in** (`optin.js`): the accounts that like the pinned post may get a reply on their own posts, at most one a
     day each and `BOT_OPTIN_DAILY` in all. Unliking ends it at the next hourly refresh.
   - **Never:** follow, like, repost, DM, @-mention (no mention facets), or reply unasked to anyone who hasn't opted
@@ -126,7 +137,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
 - `worker/` the Worker: `main.js` (the entry: the PDS's host to pds.js, the rest to the site), `index.js` (the site's routes, limits, headers), `admin.js` and `access.js` (the steward's page), `agent.js` (the tool loop, the system
   prompt), `thread.js` and `memory.js` (each invite's one conversation and its memory), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
   2026-11-20), `invites.js` and `limits.js` (adapted from Siren's, MIT), `journal-core.js` (the journal's checks, shared with
-  the script), `journal-pages.js` (pages for entries in its repository), `bot/` (autonomist on Bluesky).
+  the script), `journal-pages.js` (pages for entries in its repository), `thinking-pages.js` (the run journal and memory
+  at `/thinking/`), `bot/` (autonomist on Bluesky).
 - `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers, case
   studies and the journal; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on
   deploy); `scripts/invites.mjs` the steward's CLI; `scripts/birth.mjs` gives an agent its account on its own PDS

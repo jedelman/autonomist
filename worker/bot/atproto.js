@@ -84,12 +84,16 @@ export function client(env, { pdsFetch, kv, fetch: f = fetch, now = () => Date.n
     return res.json()
   }
 
-  /** Publishes a post from autonomist's account. `links` become clickable; nothing is ever an @mention facet. */
-  async function post({ text, links = [], reply }) {
+  /**
+   * Publishes a post from autonomist's account. `links` in the text become clickable; `card` ({ uri, title,
+   * description }) attaches a link card instead, leaving the text's room for the words. Nothing is ever an @mention.
+   */
+  async function post({ text, links = [], reply, card }) {
     if (!fits(text)) throw new Error('post too long')
     const s = await session()
     const facets = linkFacets(text, links)
-    const record = { $type: 'app.bsky.feed.post', text, createdAt: new Date(now()).toISOString(), langs: ['en'], ...(facets.length ? { facets } : {}), ...(reply ? { reply } : {}) }
+    const embed = card?.uri ? { $type: 'app.bsky.embed.external', external: { uri: card.uri, title: String(card.title || '').slice(0, 300), description: String(card.description || '').slice(0, 1000) } } : null
+    const record = { $type: 'app.bsky.feed.post', text, createdAt: new Date(now()).toISOString(), langs: ['en'], ...(facets.length ? { facets } : {}), ...(reply ? { reply } : {}), ...(embed ? { embed } : {}) }
     return call('POST', 'com.atproto.repo.createRecord', { body: { repo: s.did, collection: 'app.bsky.feed.post', record } })
   }
 

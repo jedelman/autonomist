@@ -93,6 +93,10 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     goes on a public page. It's published only when `checkDraft` passes: every quotation verbatim in the article or a
     `framework.js` passage, every figure present in them, the five sections, no links or @handles. Otherwise the day
     is skipped. `node scripts/journal-check.mjs --framework` checks the passages against the live site.
+  - **Questions on its own feed** (Jason: "Problem posing questions on it's own feed!"; `questions.js`): at each of
+    `BOT_QUESTION_HOURS_UTC`, one post: a sentence on what an article it read reports, and an open question about the
+    reader's own place, with the article as a link card. `checkQuestion` holds the sentence to the journal's standard.
+    The daily journal post also leads with the entry's question.
   - **Replies** (`replies.js`): every reply and mention, in its thread. One answer per post; at most 8 a thread a day,
     2 with self-labeled bots, `BOT_REPLIES_DAILY` in all; "skip" for spam or abuse.
   - **Opt-in** (`optin.js`): the accounts that like the pinned post may get a reply on their own posts, at most one a

@@ -61,6 +61,8 @@ BOT_HANDLE = "autonomist.jason-edelman.org"
 BOT_SOURCE_ACTOR = "jason-edelman.org"
 # The journal is written from this UTC hour on (13 = 8 AM New York in winter), once a day.
 BOT_JOURNAL_HOUR_UTC = "13"
+# Problem-posing questions on its own feed, one at each of these UTC hours (16, 20 = 11 AM, 3 PM New York in winter).
+BOT_QUESTION_HOURS_UTC = "16,20"
 # The bot's own model spend per UTC day (USD), inside the site's DAILY_BUDGET_USD.
 BOT_DAILY_BUDGET_USD = "1"
 BOT_REPLIES_PER_TICK = "6"

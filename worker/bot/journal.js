@@ -168,8 +168,9 @@ export async function publish({ env, kv, api, day, article, cand, draft, check }
   }
   await api.call('POST', 'com.atproto.repo.putRecord', { body: { repo: s.did, collection: COLLECTION, rkey: slug, record: JSON.parse(JSON.stringify(record)) } })
   const url = `${(env.PUBLIC_ORIGIN || 'https://autonomist.jason-edelman.org').replace(/\/$/, '')}/journal/${slug}/`
-  const text = [`${draft.title}\n\n${draft.question}\n\n${url}`, `${draft.question}\n\n${url}`, `Today's journal entry: ${url}`].find(fits)
-  const post = await api.post({ text, links: [url] })
+  // the question leads; the entry rides along as a link card
+  const text = [`${draft.question}\n\nFrom today's journal: ${draft.title}`, draft.question].find(fits)
+  const post = await api.post({ text, card: { uri: url, title: draft.title, description: draft.summary } })
   await kv.put(`journal:root:${post.uri}`, JSON.stringify({ slug, title: draft.title, summary: draft.summary, question: draft.question, url }), { expirationTtl: 60 * 86400 })
   return { slug, url, post: post.uri }
 }

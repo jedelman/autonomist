@@ -7,6 +7,7 @@ import { normalizeUrl, linksFromItem, sweep, candidates } from '../worker/bot/so
 import { checkDraft, runJournal, COLLECTION } from '../worker/bot/journal.js'
 import { runReplies, vetReply } from '../worker/bot/replies.js'
 import { ensurePinned, runOptin, PINNED_TEXT, PROFILE_DESCRIPTION } from '../worker/bot/optin.js'
+import { checkQuestion, dueSlot, runQuestion } from '../worker/bot/questions.js'
 import { structured, BudgetError } from '../worker/bot/model.js'
 import { client, jwtExp } from '../worker/bot/atproto.js'
 import { entryHtml, listItems } from '../worker/journal-pages.js'
@@ -114,8 +115,8 @@ test('journal: picks, reads an open page, writes, checks, stores the record in i
   assert.equal(put.opts.body.record.via.handle, 'friend.example')
   assert.deepEqual(put.opts.body.record.sources, [article.url, FRAMEWORK[1].url])
   assert.equal(api.posts.length, 1)
-  assert.ok(api.posts[0].text.includes('Who on your block would you call first?'))
-  assert.deepEqual(api.posts[0].links, [`https://autonomist.jason-edelman.org/journal/${r.published}/`])
+  assert.ok(api.posts[0].text.startsWith('Who on your block would you call first?'))
+  assert.equal(api.posts[0].card.uri, `https://autonomist.jason-edelman.org/journal/${r.published}/`)
   assert.ok(await kv.get('journal:done:2026-11-24'))
   assert.deepEqual(await runJournal({ env: {}, kv, api, model, day: '2026-11-24', fetch: f }), { skipped: 'already published today' })
 })
@@ -264,4 +265,37 @@ test('atproto: a 401 for an unaccepted token logs in again; a 401 from a proxied
   mode = 'upstream'
   await assert.rejects(api.call('GET', 'app.bsky.notification.listNotifications'), /identity unknown/)
   assert.equal(logins, 2)
+})
+
+test('questions: due slots; a sound question passes; invented figures, links, handles and length are refused', () => {
+  assert.equal(dueSlot([16, 20], new Date('2026-11-24T15:59:00Z')), null)
+  assert.equal(dueSlot([16, 20], new Date('2026-11-24T17:10:00Z')), 16)
+  assert.equal(dueSlot([16, 20], new Date('2026-11-24T23:00:00Z')), 20)
+  const ok = checkQuestion({ framing: 'A report in News Example says the council sold a 140-unit complex to a developer.', question: 'Who would your building be sold to, and would anyone ask you first?' }, article)
+  assert.deepEqual(ok.problems, [])
+  assert.ok(ok.text.endsWith('first?'))
+  assert.ok(checkQuestion({ framing: 'The council sold 900 units.', question: 'Who owns yours?' }, article).problems.includes('figure not found in any source: 900'))
+  assert.ok(checkQuestion({ framing: 'See https://x.example', question: 'Who owns yours?' }, article).problems.includes('no links'))
+  assert.ok(checkQuestion({ framing: 'As @a.example says.', question: 'Who owns yours?' }, article).problems.includes('no @handles'))
+  assert.ok(checkQuestion({ framing: 'x'.repeat(270), question: 'Who owns yours?' }, article).problems.some((p) => p.startsWith('too long')))
+  assert.ok(checkQuestion({ framing: 'Tenants met.', question: 'Not a question.' }, article).problems.some((p) => p.startsWith('the question')))
+})
+
+test('questions: at a due slot, reads an open article, posts the question with the article as a card, once', async () => {
+  const kv = memoryKV()
+  await kv.put('cand:abc', '', { metadata: { u: article.url, t: article.title, at: new Date().toISOString() } })
+  const api = fakeApi()
+  const answers = [{ picks: [{ index: 0, why: '' }] }, { framing: 'A report in News Example says the council sold a 140-unit complex.', question: 'Who would your building be sold to, and would anyone ask you first?' }]
+  const model = { structured: async () => ({ data: answers.shift() }) }
+  const html = `<html><head><meta property="og:title" content="${article.title}"><meta property="og:description" content="The sale."></head><body><p>${ARTICLE_TEXT} ${'More reporting on the sale and the tenants. '.repeat(40)}</p></body></html>`
+  const f = async (url) => (String(url).endsWith('/robots.txt') ? new Response('', { status: 404 }) : new Response(html, { headers: { 'content-type': 'text/html' } }))
+  const now = new Date('2026-11-24T16:02:00Z')
+  const r = await runQuestion({ env: {}, kv, api, model, day: '2026-11-24', now, fetch: f })
+  assert.equal(r.slot, 16)
+  assert.equal(api.posts.length, 1)
+  assert.ok(api.posts[0].text.endsWith('ask you first?'))
+  assert.equal(api.posts[0].card.uri, article.url)
+  assert.equal(api.posts[0].card.description, 'The sale.')
+  assert.deepEqual(await runQuestion({ env: {}, kv, api, model, day: '2026-11-24', now, fetch: f }), { skipped: 'already asked this slot' })
+  assert.deepEqual(await runQuestion({ env: {}, kv, api, model, day: '2026-11-24', now: new Date('2026-11-24T10:00:00Z'), fetch: f }), { skipped: 'no question due yet' })
 })

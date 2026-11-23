@@ -138,7 +138,10 @@ for (const file of walk(join(root, 'site/pages')).filter((p) => p.endsWith('.md'
     body = body.replace('{{list}}', section === 'journal' ? `<div id="journal-list">${list}</div>` : list)
   }
   const target = rel === 'index.md' ? 'index.html' : rel.endsWith('/index.md') ? rel.replace(/index\.md$/, 'index.html') : rel.replace(/\.md$/, '/index.html')
-  write(target, page({ title: meta.title || 'autonomist', description: meta.description, content: md(body), section }))
+  // a page's own scripts (external files only, under the strict CSP) go at the end of the body, as on the tool pages
+  const scripts = (body.match(/<script[\s\S]*?<\/script>/g) || []).join('\n')
+  body = body.replace(/<script[\s\S]*?<\/script>\s*/g, '')
+  write(target, page({ title: meta.title || 'autonomist', description: meta.description, content: md(body), scripts, section }))
 }
 
 // chat, the saved-result shell, and 404

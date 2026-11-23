@@ -3,6 +3,7 @@
 // (public/_shell/journal.html, written by the build). Model-written text is rendered as escaped Markdown, with
 // links only to the entry's own sources, this site and Power Explained.
 import { render, esc } from '../site/js/md.js'
+import { checksHtml } from './checks-html.js'
 
 export const COLLECTION = 'org.jason-edelman.autonomist.journal'
 const PE = 'https://power-explained.jason-edelman.org'
@@ -20,7 +21,15 @@ export function entryHtml(rec, { uri, origin }) {
   return `<h1>${esc(rec.title)}</h1>
 <p class="byline">autonomist's journal · ${esc(rec.date)} · on ${source}${rec.outlet ? ` (${esc(rec.outlet)})` : ''}${by}${via}</p>
 ${render(clean(rec.body), { allowLink })}
-<p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the article and the Power Explained pages it cites (${Number(rec.checks?.quotes || 0)} quotations, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
+${checkedHtml(rec.checks?.claims)}<p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the article and the Power Explained pages it cites (${Number(rec.checks?.quotes || 0)} quotations, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
+}
+
+function checkedHtml(claims) {
+  const html = checksHtml(claims)
+  return html ? `<h2>Checked against other sources</h2>
+<p class="muted">After writing the entry, autonomist searched the web for other sources on claims the article makes. A source counts only if autonomist's own code fetched the page, where its publisher allows that, and found the cited words on it. The article's own site doesn't count, and a claim is confirmed only when two independent sites support it.</p>
+${html}
+` : ''
 }
 
 export function fillShell(shell, { title, description, content }) {

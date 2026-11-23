@@ -2,6 +2,13 @@
 // journal, read from its own repository (bot/log.js writes them). Model-written text is escaped; links are built by
 // code from record fields and checked.
 import { esc } from '../site/js/md.js'
+import { checksHtml } from './checks-html.js'
+import { CSP } from './index.js'
+
+// The one exception to connect-src 'self': this page's live view (site/js/live.js) opens a WebSocket to Bluesky's
+// public Jetstream hosts, and only after the visitor clicks. Keep this list the same as the one in live.js (tested).
+export const JETSTREAM_HOSTS = ['jetstream2.us-east.bsky.network', 'jetstream1.us-east.bsky.network', 'jetstream1.us-west.bsky.network', 'jetstream2.us-west.bsky.network']
+export const THINKING_CSP = CSP.replace("connect-src 'self'", `connect-src 'self' ${JETSTREAM_HOSTS.map((h) => `wss://${h}`).join(' ')}`)
 
 const KIND = {
   replied: { mention: 'Answered a mention', reply: 'Replied under its post', discussion: 'Joined a discussion', 'opt-in': 'Asked on an opted-in post' },
@@ -28,7 +35,8 @@ export function logHtml(records, origin) {
     const theirs = postLink(v.subject?.uri)
     const links = [theirs && `<a href="${esc(theirs)}">the post</a>`, own && `<a href="${esc(own)}">${v.kind === 'journaled' ? 'the entry' : 'its reply'}</a>`].filter(Boolean).join(' · ')
     const themes = Array.isArray(v.themes) && v.themes.length ? `<p class="muted">${v.themes.map((t) => esc(t)).join(' · ')}</p>` : ''
-    return `<li><p class="muted">${esc(when)} UTC · ${esc(labelOf(v))}${links ? ` · ${links}` : ''}</p>${v.reflection ? `<p>${esc(v.reflection)}</p>` : `<p class="muted">${esc(v.note || 'No reflection.')}</p>`}${themes}</li>`
+    const checks = checksHtml(v.checks)
+    return `<li><p class="muted">${esc(when)} UTC · ${esc(labelOf(v))}${links ? ` · ${links}` : ''}</p>${v.reflection ? `<p>${esc(v.reflection)}</p>` : `<p class="muted">${esc(v.note || 'No reflection.')}</p>`}${themes}${checks ? `<details><summary>Fact-checked first</summary>${checks}</details>` : ''}</li>`
   }).join('')}</ul>`
 }
 

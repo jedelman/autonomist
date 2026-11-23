@@ -70,6 +70,10 @@ BOT_REPLIES_DAILY = "150"
 BOT_OPTIN_DAILY = "10"
 BOT_OPTIN_PER_RUN = "20"
 BOT_SWEEP_PER_TICK = "8"
+# Web searches for fact-checks per UTC day ($0.01 each, inside BOT_DAILY_BUDGET_USD). "0" turns search off.
+BOT_SEARCHES_DAILY = "30"
+# Fact-checks in one cron run (each up to three searches and six page reads, read in parallel).
+BOT_CHECKS_PER_RUN = "3"
 
 # Storage for invites, the access-request list, limits, spend, saved results and case-study
 # proposals. Created by Jason 2026-11-20. Without it the site still serves pages, but the chat

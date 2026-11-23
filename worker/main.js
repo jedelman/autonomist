@@ -8,7 +8,7 @@ import pds, { PDSDurableObject } from '@pdsjs/cloudflare'
 import site, { withSecurity } from './index.js'
 import { runBot } from './bot/index.js'
 import { COLLECTION, entryHtml, fillShell, listItems, listHtml } from './journal-pages.js'
-import { logHtml, memoryHtml } from './thinking-pages.js'
+import { logHtml, memoryHtml, THINKING_CSP } from './thinking-pages.js'
 import { LOG, MEMORY } from './bot/log.js'
 
 export { PDSDurableObject }
@@ -82,6 +82,7 @@ async function thinkingPage(req, env, ctx) {
   const headers = new Headers(built.headers)
   headers.delete('Content-Length')
   headers.set('Cache-Control', 'public, max-age=60')
+  headers.set('Content-Security-Policy', THINKING_CSP)
   const did = await agentDid(env, ctx)
   const list = async (collection, limit) => (did ? fromPds(env, ctx, `/xrpc/com.atproto.repo.listRecords?repo=${did}&collection=${collection}&limit=${limit}`).then((r) => (r.ok ? r.json() : { records: [] })).catch(() => ({ records: [] })) : { records: [] })
   const [logs, mems] = await Promise.all([list(LOG, 60), list(MEMORY, 20)])

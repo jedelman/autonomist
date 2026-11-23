@@ -5,7 +5,7 @@
 // minutes. The pinned opt-in post is made once, by whichever runs first.
 // Off unless BOT_ENABLED is "true". Each step logs one line of JSON and never stops the others.
 import { client } from './atproto.js'
-import { structured } from './model.js'
+import { structured, searchCall } from './model.js'
 import { refreshFollows, sweep } from './sources.js'
 import { runJournal } from './journal.js'
 import { runReplies } from './replies.js'
@@ -28,7 +28,20 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
   const now = new Date(event?.scheduledTime || Date.now())
   const day = now.toISOString().slice(0, 10)
   const api = client(env, { pdsFetch, kv })
-  const model = { structured: (opts) => structured({ env, kv, day, create, ...opts }) }
+  // web search for fact-checks (bot/factcheck.js): off when BOT_SEARCHES_DAILY is 0, and at most BOT_CHECKS_PER_RUN
+  // checks in one cron run, so a run stays well inside its wall time and the replies lock (a check over the limit
+  // throws, and the reply or entry goes out unchecked)
+  const perRun = setting(env.BOT_CHECKS_PER_RUN, 3, { min: 0, max: 10 })
+  let checks = 0
+  const model = {
+    structured: (opts) => structured({ env, kv, day, create, ...opts }),
+    ...(setting(env.BOT_SEARCHES_DAILY, 30, { min: 0 }) > 0 && perRun > 0 ? {
+      search: (opts) => {
+        if (++checks > perRun) throw new Error('enough fact-checks for this run')
+        return searchCall({ env, kv, day, create, ...opts })
+      },
+    } : {}),
+  }
   const step = async (name, fn) => {
     try { console.log(JSON.stringify({ bot: name, ok: true, result: await fn() })) } catch (e) { console.log(JSON.stringify({ bot: name, ok: false, error: String(e?.message || e).slice(0, 300) })) }
   }

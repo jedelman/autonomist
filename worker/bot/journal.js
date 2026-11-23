@@ -9,6 +9,7 @@ import { graphemes, fits } from './text.js'
 import { obj } from './model.js'
 import { rememberRoot } from './threads.js'
 import { REFLECTION_FIELDS, REFLECTION_RULES, writeLog, memoryNote } from './log.js'
+import { factCheck, siteOf } from './factcheck.js'
 
 export const COLLECTION = 'org.jason-edelman.autonomist.journal'
 const PE = 'https://power-explained.jason-edelman.org'
@@ -38,11 +39,44 @@ Style: plain, direct and concrete. Short sentences. No hype, no lecturing, never
 
 Also give a title (your own headline, under 90 characters), a one-sentence summary (under 300 characters), and the question again on its own (under 200 characters, ending with "?").
 
+claims_to_check: up to two factual claims the article makes that your reading leans on and that other sources could confirm or contradict (a figure, a law, an event). Write each as one plain sentence saying what the article reports, under 250 characters, with figures exactly as the article writes them. After you write, your own code will search the web for independent sources on them and publish what it finds under the entry. Leave it empty if nothing is worth checking.
+
 If your community memory shows problems people keep raising, let them shape what you emphasize and the question you ask.
 
 ${REFLECTION_RULES}`
 
-export const ENTRY_SCHEMA = obj({ title: { type: 'string' }, summary: { type: 'string' }, question: { type: 'string' }, body: { type: 'string' }, ...REFLECTION_FIELDS })
+export const ENTRY_SCHEMA = obj({ title: { type: 'string' }, summary: { type: 'string' }, question: { type: 'string' }, body: { type: 'string' }, claims_to_check: { type: 'array', items: { type: 'string' } }, ...REFLECTION_FIELDS })
+
+/**
+ * The claims worth checking, held to the entry's own rules (no quotations, links, handles or control characters;
+ * every figure is the article's). A claim that fails is dropped rather than checked.
+ */
+export function claimsToCheck(draft, article) {
+  const texts = [normalize(`${article.title}\n${article.text}`)]
+  return (Array.isArray(draft?.claims_to_check) ? draft.claims_to_check : []).map((c) => String(c).trim()).filter((c) =>
+    c && c.length <= 300 && !/["“”]/.test(c) && !/https?:\/\/|www\.|@[a-z0-9-]+\./i.test(c) && !hasControlChars(c) && verifyBody(c, texts).problems.length === 0,
+  ).slice(0, 2)
+}
+
+/**
+ * Checks the entry's claims against other sources (bot/factcheck.js), never counting the article's own site. Best
+ * effort: a search that fails or runs out of budget leaves the entry unchecked rather than unpublished.
+ */
+export async function checkClaims({ env, kv, model, day, draft, article, fetch: f = fetch, factCheckFn = factCheck }) {
+  const out = []
+  if (!model.search) return out
+  for (const claim of claimsToCheck(draft, article)) {
+    try {
+      const c = await factCheckFn({ env, kv, model, day, claim, exclude: [siteOf(article.url)], fetch: f })
+      if (!c) break
+      out.push({ claim: c.claim, verdict: c.verdict, sources: c.sources.map((x) => ({ url: x.url, title: x.title, quote: x.quote, stance: x.stance })) })
+    } catch (e) {
+      console.log(JSON.stringify({ bot: 'journal', check: 'failed', error: String(e?.message || e).slice(0, 160) }))
+      break
+    }
+  }
+  return out
+}
 
 export const PICK_SYSTEM = `You choose the article for today's entry in autonomist's public journal. autonomist is an AI organizer for a federation of housing cooperatives that reads the news through the Power Explained framework: who a system serves, whether value runs through private ownership, the state or the commons, and what people are building instead of waiting.
 
@@ -143,8 +177,9 @@ export async function runJournal({ env, kv, api, model, day, example, fetch: f =
       if (article.words < 350) { tried.push({ url: cand.url, why: `only ${article.words} words readable` }); continue }
       const { draft, check } = await write({ kv, model, article, cand, example })
       if (check.problems.length) { tried.push({ url: cand.url, why: `failed checks: ${check.problems.slice(0, 3).join('; ')}` }); continue }
-      const published = await publish({ env, kv, api, day, article, cand, draft, check })
-      await writeLog(api, { kind: 'journaled', context: 'journal', source: article.url, result: published.url, reflection: draft.reflection, themes: draft.themes })
+      const claims = await checkClaims({ env, kv, model, day, draft, article, fetch: f })
+      const published = await publish({ env, kv, api, day, article, cand, draft, check: { ...check, claims } })
+      await writeLog(api, { kind: 'journaled', context: 'journal', source: article.url, result: published.url, reflection: draft.reflection, themes: draft.themes, checks: claims })
       return { published: published.slug, url: published.url, ...(await announce({ kv, api, day })), tried }
     }
     return { skipped: 'nothing passed', tried }
@@ -175,7 +210,7 @@ export async function publish({ env, kv, api, day, article, cand, draft, check }
     published: article.published || undefined,
     sources: [article.url, ...check.frameworkUrls],
     via: cand.post ? { handle: cand.handle, post: cand.post } : undefined,
-    checks: { quotes: check.quotes, figures: check.figures, at: new Date().toISOString() },
+    checks: { quotes: check.quotes, figures: check.figures, ...(check.claims?.length ? { claims: check.claims } : {}), at: new Date().toISOString() },
     model: env.MODEL || 'claude-haiku-5-5',
     createdAt: new Date().toISOString(),
   }

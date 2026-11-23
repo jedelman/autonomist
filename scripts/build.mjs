@@ -134,7 +134,8 @@ for (const file of walk(join(root, 'site/pages')).filter((p) => p.endsWith('.md'
   if (body.includes('{{list}}')) {
     const items = index[section] || []
     const empty = section === 'case-studies' ? 'None are published yet.' : 'Nothing here yet.'
-    body = body.replace('{{list}}', listHtml(items, empty))
+    const list = listHtml(items, empty)
+    body = body.replace('{{list}}', section === 'journal' ? `<div id="journal-list">${list}</div>` : list)
   }
   const target = rel === 'index.md' ? 'index.html' : rel.endsWith('/index.md') ? rel.replace(/index\.md$/, 'index.html') : rel.replace(/\.md$/, '/index.html')
   write(target, page({ title: meta.title || 'autonomist', description: meta.description, content: md(body), section }))
@@ -146,7 +147,9 @@ for (const [src, target, section, bodyClass] of [['site/chat.html', 'chat/index.
   const scripts = (body.match(/<script[\s\S]*?<\/script>/g) || []).join('\n')
   write(target, page({ title: meta.title, description: meta.description, content: body.replace(/<script[\s\S]*?<\/script>\s*/g, ''), scripts, section, bodyClass, wide: target.startsWith('results') }))
 }
+// the shell the Worker fills for journal entries autonomist wrote itself (worker/journal-pages.js)
+write('_shell/journal.html', page({ title: '{{journal:title}}', description: '{{journal:description}}', content: '<!--journal:content-->', section: 'journal' }))
 write('404.html', page({ title: 'Not found · autonomist', content: '<h1>Not found</h1><p>There is no page at this address. Try the <a href="/">front page</a>.</p>' }))
-write('robots.txt', 'User-agent: *\nDisallow: /api/\nDisallow: /results/\nDisallow: /admin/\n')
+write('robots.txt', 'User-agent: *\nDisallow: /api/\nDisallow: /results/\nDisallow: /admin/\nDisallow: /_shell/\n')
 write('content-index.json', JSON.stringify(index))
 console.log(`built public/: ${papers.length} papers, ${index.journal.length} journal entries, ${index['case-studies'].length} case studies, ${tools.length} tools`)

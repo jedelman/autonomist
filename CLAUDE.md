@@ -82,8 +82,27 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     project has taken.
   - Take only what's offered, as the research watch does: honor robots.txt and Content-Signal, never get around
     a paywall or block, quote briefly and link, and remove a quotation when a publisher asks.
-  - Not automated yet. The routine (sources, cadence, how entries publish, whether autonomist posts them on
-    Bluesky) waits on Jason.
+  - Automated since 2026-11-23 (below): autonomist writes one a day as a record in its own repository.
+- **autonomist on Bluesky** (Jason, 2026-11-23: "Opt out for sources, starting with my follows. Cadence: one blog post a
+  day, automatic. For Bluesky: like pinned post to opt in to unsolicited opinions. Autonomist posts problem posing
+  questions and engages with all replies."). `worker/bot/`, run by the cron every five minutes; off unless `BOT_ENABLED`.
+  - **Sources:** the links that accounts `BOT_SOURCE_ACTOR` follows share (`sources.js`), read only when robots.txt and
+    Content-Signal allow (opt-out, as the research watch).
+  - **The journal, daily and automatic** (`journal.js`): entries are `org.jason-edelman.autonomist.journal` records
+    in its repository, rendered at `/journal/<slug>/` (`journal-pages.js`). This is the one place model-written prose
+    goes on a public page. It's published only when `checkDraft` passes: every quotation verbatim in the article or a
+    `framework.js` passage, every figure present in them, the five sections, no links or @handles. Otherwise the day
+    is skipped. `node scripts/journal-check.mjs --framework` checks the passages against the live site.
+  - **Replies** (`replies.js`): every reply and mention, in its thread. One answer per post; at most 8 a thread a day,
+    2 with self-labeled bots, `BOT_REPLIES_DAILY` in all; "skip" for spam or abuse.
+  - **Opt-in** (`optin.js`): the accounts that like the pinned post may get a reply on their own posts, at most one a
+    day each and `BOT_OPTIN_DAILY` in all. Unliking ends it at the next hourly refresh.
+  - **Never:** follow, like, repost, DM, @-mention (no mention facets), link beyond this site and Power Explained, or
+    reply unasked to anyone who hasn't opted in.
+  - **Spend:** `BOT_DAILY_BUDGET_USD`, inside the site's `DAILY_BUDGET_USD`. Model calls ask for JSON against a schema
+    (`output_config.format`), which works with Haiku 5.5's thinking.
+  - **Session:** kept in KV and refreshed; it logs in only for a token pds.js won't accept, and counts logins
+    (`bot:logins:<day>`).
 - **Keep these projects separate unless Jason links them:** Ghent Streets (Jason, 2026-11-20).
 
 ## Layout
@@ -91,7 +110,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
 - `model/` the engine model (Node and browser), its driver and generated results.
 - `worker/` the Worker: `main.js` (the entry: the PDS's host to pds.js, the rest to the site), `index.js` (the site's routes, limits, headers), `admin.js` and `access.js` (the steward's page), `agent.js` (the tool loop, the system
   prompt), `thread.js` and `memory.js` (each invite's one conversation and its memory), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
-  2026-11-20), `invites.js` and `limits.js` (adapted from Siren's, MIT).
+  2026-11-20), `invites.js` and `limits.js` (adapted from Siren's, MIT), `journal-core.js` (the journal's checks, shared with
+  the script), `journal-pages.js` (pages for entries in its repository), `bot/` (autonomist on Bluesky).
 - `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers, case
   studies and the journal; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on
   deploy); `scripts/invites.mjs` the steward's CLI; `scripts/birth.mjs` gives an agent its account on its own PDS
@@ -106,6 +126,7 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
 npm test
 node scripts/build.mjs
 node scripts/journal-check.mjs --fetch   # when a journal entry changed
+node scripts/journal-check.mjs --framework   # when worker/bot/framework.js changed
 npx wrangler deploy --dry-run --outdir /tmp/autonomist-dist
 ```
 

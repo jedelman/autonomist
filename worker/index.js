@@ -16,7 +16,7 @@ const today = () => new Date().toISOString().slice(0, 10)
 // Swappable for tests.
 export const deps = { ask, fold: foldMemory }
 
-function withSecurity(res, status) {
+export function withSecurity(res, status) {
   const r = new Response(res.body, status ? { status, headers: res.headers } : res)
   for (const [k, v] of Object.entries(SECURITY)) r.headers.set(k, v)
   return r

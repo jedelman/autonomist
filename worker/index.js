@@ -8,15 +8,16 @@ import { loadThread, saveThread, eraseThread, contextWindow, foldPlan, publicThr
 import { foldMemory } from './memory.js'
 import { UA_HEADER } from './parcel.js'
 import { adminApi, adminEnabled } from './admin.js'
+import { queueChatReflection, memoryNote } from './bot/log.js'
 
-const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+export const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 const SECURITY = { 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()' }
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...SECURITY, ...headers } })
 const today = () => new Date().toISOString().slice(0, 10)
 // Swappable for tests.
 export const deps = { ask, fold: foldMemory }
 
-function withSecurity(res, status) {
+export function withSecurity(res, status) {
   const r = new Response(res.body, status ? { status, headers: res.headers } : res)
   for (const [k, v] of Object.entries(SECURITY)) r.headers.set(k, v)
   return r
@@ -62,6 +63,9 @@ async function chat(req, env, ctx) {
   const thread = invite ? await loadThread(kv, invite.hash) : { turns: [], memory: null }
   const historyBudget = setting(env.HISTORY_CHARS, 150_000, { min: 4000, max: 600_000 })
   const messages = contextWindow(thread, question, historyBudget)
+  // the community memory autonomist writes from all its public conversations, read before it answers here too
+  const community = env.BOT_ENABLED === 'true' ? await memoryNote(kv) : ''
+  if (community) messages[0].content = `${community.trim()}\n\n${messages[0].content}`
 
   const day = today()
   // daily limits: per invite, and one budget for the whole site (fails closed)
@@ -103,6 +107,8 @@ async function chat(req, env, ctx) {
       if (foldPlan(thread, historyBudget)) ctx.waitUntil(foldNow(env, invite.hash, historyBudget, day).catch((e) => console.error('memory fold failed', String(e?.message || e).slice(0, 200))))
     }
     ctx.waitUntil(Promise.all(spends))
+    // every chat answer ends with a reflection in the public run journal (written by the bot, off this request)
+    if (env.BOT_ENABLED === 'true' && !out.refused) ctx.waitUntil(queueChatReflection(kv, { question, answer: out.answer }).catch(() => {}))
     console.log(JSON.stringify({ event: 'answer', tools: out.tools.map((t) => t.tool), steps: out.tools.length, context_turns: messages.length, cost: Math.round(out.cost * 1e6) / 1e6, refused: Boolean(out.refused) }))
     return json({ answer: out.answer, sources: out.sources, results: out.results, at })
   } catch (e) {

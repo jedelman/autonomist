@@ -14,6 +14,17 @@ routes = [
   { pattern = "pds.autonomist.jason-edelman.org", custom_domain = true },
 ]
 
+# autonomist on Bluesky (worker/bot/): every five minutes it answers replies and mentions and reads a few of Jason's
+# follows for links; hourly (at :07) it does the slow work: the journal entry, questions on its feed, the opt-in sweep.
+[triggers]
+crons = ["*/5 * * * *", "7 * * * *"]
+
+# The journal's first entry is the bot's example of form and voice; Markdown is imported as text.
+[[rules]]
+type = "Text"
+globs = ["**/*.md"]
+fallthrough = true
+
 # The site is built into public/ before every deploy (scripts/build.mjs).
 [build]
 command = "node scripts/build.mjs"
@@ -43,6 +54,26 @@ HOSTNAME = "pds.autonomist.jason-edelman.org"
 RELAY_URL = "https://bsky.network"
 APPVIEW_URL = "https://api.bsky.app"
 APPVIEW_DID = "did:web:api.bsky.app"
+# The bot (worker/bot/). Off unless BOT_ENABLED is "true".
+BOT_ENABLED = "true"
+BOT_HANDLE = "autonomist.jason-edelman.org"
+# Whose follows are the journal's sources (Jason, 2026-11-23: "starting with my follows").
+BOT_SOURCE_ACTOR = "jason-edelman.org"
+# The journal is written from this UTC hour on (13 = 8 AM New York in winter), once a day.
+BOT_JOURNAL_HOUR_UTC = "13"
+# Problem-posing questions on its own feed, one at each of these UTC hours (16, 20 = 11 AM, 3 PM New York in winter).
+BOT_QUESTION_HOURS_UTC = "16,20"
+# The bot's own model spend per UTC day (USD), inside the site's DAILY_BUDGET_USD.
+BOT_DAILY_BUDGET_USD = "1"
+BOT_REPLIES_PER_TICK = "6"
+BOT_REPLIES_DAILY = "150"
+BOT_OPTIN_DAILY = "10"
+BOT_OPTIN_PER_RUN = "20"
+BOT_SWEEP_PER_TICK = "8"
+# Web searches for fact-checks per UTC day ($0.01 each, inside BOT_DAILY_BUDGET_USD). "0" turns search off.
+BOT_SEARCHES_DAILY = "30"
+# Fact-checks in one cron run (each up to three searches and six page reads, read in parallel).
+BOT_CHECKS_PER_RUN = "3"
 
 # Storage for invites, the access-request list, limits, spend, saved results and case-study
 # proposals. Created by Jason 2026-11-20. Without it the site still serves pages, but the chat

@@ -7,12 +7,13 @@
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 
-const defaultAllow = (url) => /^\/(?!\/)/.test(url) || /^#[\w-]+$/.test(url) || /^https:\/\/[^\s"'<>]+$/.test(url)
+const defaultAllow = (url) => /^\/(?![\/\\])/.test(url) || /^#[\w-]+$/.test(url) || /^https:\/\/[^\s"'<>]+$/.test(url)
 
 export function inline(text, allowLink = defaultAllow) {
   // pull out code spans first so their contents stay literal
   const codes = []
-  let s = String(text).replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000` })
+  // \u0000 and \u0001 mark code spans and links below; strip any already in the text so they can't be forged
+  let s = String(text).replace(/[\u0000\u0001]/g, '').replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000` })
   const links = []
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, url) => { links.push([label, url]); return `\u0001${links.length - 1}\u0001` })
   s = esc(s)

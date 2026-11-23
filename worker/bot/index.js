@@ -1,7 +1,7 @@
-// autonomist's life on Bluesky, run by the Worker's cron (every five minutes). Each tick:
-//   the pinned opt-in post (once) · replies to every reply and mention · a few of Jason's follows read for links
-// and, when due: the follow list (daily) · the opt-in sweep (hourly) · the journal entry (daily, from BOT_JOURNAL_HOUR_UTC)
-// · a problem-posing question on its own feed (at each of BOT_QUESTION_HOURS_UTC).
+// autonomist's life on Bluesky, run by two crons. Every five minutes: replies to every reply and mention, and a few of
+// Jason's follows read for links. Hourly (at :07): the follow list (daily), the opt-in sweep, the journal entry (daily,
+// from BOT_JOURNAL_HOUR_UTC) and a problem-posing question on its own feed (at each of BOT_QUESTION_HOURS_UTC). The
+// pinned opt-in post is made once, by whichever runs first.
 // Off unless BOT_ENABLED is "true". Each step logs one line of JSON and never stops the others.
 import { client } from './atproto.js'
 import { structured } from './model.js'
@@ -13,6 +13,9 @@ import { runQuestion } from './questions.js'
 import { setting } from '../limits.js'
 import firstEntry from '../../content/journal/2026-11-23-piketty-global-justice.md'
 import { frontMatter } from '../journal-core.js'
+
+export const FAST = '*/5 * * * *'
+export const HOURLY = '7 * * * *'
 
 const EXAMPLE = frontMatter(firstEntry).body.replace(/<p class="byline">[\s\S]*?<\/p>\n*/, '').replace(/<p class="muted">[\s\S]*?<\/p>\n*/, '').trim()
 
@@ -26,12 +29,19 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
   const step = async (name, fn) => {
     try { console.log(JSON.stringify({ bot: name, ok: true, result: await fn() })) } catch (e) { console.log(JSON.stringify({ bot: name, ok: false, error: String(e?.message || e).slice(0, 300) })) }
   }
+  // two schedules: the five-minute one stays quick (replies, the link sweep); the hourly one does the slow work, so a
+  // long journal run never holds up a reply. A run with no cron string (a manual test) does both.
+  const fast = event?.cron !== HOURLY, hourly = event?.cron !== FAST
   await step('pinned', () => ensurePinned({ kv, api }))
-  await step('replies', () => runReplies({ env, kv, api, model, day, now }))
-  const follows = await kv.get('bot:follows', 'json')
-  if (!follows || Date.now() - follows.at > 86400_000) await step('follows', () => refreshFollows(api, kv, env.BOT_SOURCE_ACTOR || 'jason-edelman.org'))
-  await step('sweep', () => sweep(api, kv, setting(env.BOT_SWEEP_PER_TICK, 8, { min: 0, max: 40 }), now.getTime()))
-  if (now.getUTCMinutes() < 5) await step('optin', () => runOptin({ env, kv, api, model, day, now }))
-  if (now.getUTCHours() >= setting(env.BOT_JOURNAL_HOUR_UTC, 13, { min: 0, max: 23 })) await step('journal', () => runJournal({ env, kv, api, model, day, example: EXAMPLE }))
-  await step('question', () => runQuestion({ env, kv, api, model, day, now }))
+  if (fast) {
+    await step('replies', () => runReplies({ env, kv, api, model, day, now }))
+    await step('sweep', () => sweep(api, kv, setting(env.BOT_SWEEP_PER_TICK, 8, { min: 0, max: 40 }), now.getTime()))
+  }
+  if (hourly) {
+    const follows = await kv.get('bot:follows', 'json')
+    if (!follows || Date.now() - follows.at > 86400_000) await step('follows', () => refreshFollows(api, kv, env.BOT_SOURCE_ACTOR || 'jason-edelman.org'))
+    await step('optin', () => runOptin({ env, kv, api, model, day, now }))
+    if (now.getUTCHours() >= setting(env.BOT_JOURNAL_HOUR_UTC, 13, { min: 0, max: 23 })) await step('journal', () => runJournal({ env, kv, api, model, day, example: EXAMPLE }))
+    await step('question', () => runQuestion({ env, kv, api, model, day, now }))
+  }
 }

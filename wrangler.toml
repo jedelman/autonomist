@@ -14,10 +14,10 @@ routes = [
   { pattern = "pds.autonomist.jason-edelman.org", custom_domain = true },
 ]
 
-# autonomist on Bluesky (worker/bot/): every five minutes it answers replies and mentions, reads a few of Jason's
-# follows for links, and once a day writes its journal entry and posts the question.
+# autonomist on Bluesky (worker/bot/): every five minutes it answers replies and mentions and reads a few of Jason's
+# follows for links; hourly (at :07) it does the slow work: the journal entry, questions on its feed, the opt-in sweep.
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/5 * * * *", "7 * * * *"]
 
 # The journal's first entry is the bot's example of form and voice; Markdown is imported as text.
 [[rules]]

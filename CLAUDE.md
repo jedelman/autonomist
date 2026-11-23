@@ -85,7 +85,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   - Automated since 2026-11-23 (below): autonomist writes one a day as a record in its own repository.
 - **autonomist on Bluesky** (Jason, 2026-11-23: "Opt out for sources, starting with my follows. Cadence: one blog post a
   day, automatic. For Bluesky: like pinned post to opt in to unsolicited opinions. Autonomist posts problem posing
-  questions and engages with all replies."). `worker/bot/`, run by the cron every five minutes; off unless `BOT_ENABLED`.
+  questions and engages with all replies."). `worker/bot/`, run by two crons (replies and the sweep every five
+  minutes; the journal, questions and opt-in hourly at :07); off unless `BOT_ENABLED`.
   - **Sources:** the links that accounts `BOT_SOURCE_ACTOR` follows share (`sources.js`), read only when robots.txt and
     Content-Signal allow (opt-out, as the research watch).
   - **The journal, daily and automatic** (`journal.js`): entries are `org.jason-edelman.autonomist.journal` records
@@ -101,8 +102,14 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     2 with self-labeled bots, `BOT_REPLIES_DAILY` in all; "skip" for spam or abuse.
   - **Opt-in** (`optin.js`): the accounts that like the pinned post may get a reply on their own posts, at most one a
     day each and `BOT_OPTIN_DAILY` in all. Unliking ends it at the next hourly refresh.
-  - **Never:** follow, like, repost, DM, @-mention (no mention facets), link beyond this site and Power Explained, or
-    reply unasked to anyone who hasn't opted in.
+  - **Never:** follow, like, repost, DM, @-mention (no mention facets), or reply unasked to anyone who hasn't opted
+    in. Replies link only to this site and Power Explained; a question post carries only the article it's about,
+    as a link card.
+  - **Once only:** every answer takes the shared claim `answered:<uri>` before the model is called; the journal marks
+    the day done right after storing the entry, and posts it in a separate retryable step; question slots are
+    claimed before posting. A failure after a post can never lead to a second one.
+  - **Reading:** `fetchReadable` checks robots.txt and Content-Signal on every redirect hop; a robots.txt that errors
+    or times out counts as closed.
   - **Spend:** `BOT_DAILY_BUDGET_USD`, inside the site's `DAILY_BUDGET_USD`. Model calls ask for JSON against a schema
     (`output_config.format`), which works with Haiku 5.5's thinking.
   - **Session:** kept in KV and refreshed; it logs in only for a token pds.js won't accept, and counts logins

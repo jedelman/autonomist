@@ -54,10 +54,12 @@ export function htmlToText(html) {
 export function readArticle(html, url) {
   const s = String(html)
   const meta = (name) => {
-    const re1 = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*content=["']([^"']*)["']`, 'i')
-    const re2 = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${name}["']`, 'i')
-    const m = s.match(re1) || s.match(re2)
-    return m ? decodeEntities(m[1]).trim() : ''
+    for (const q of ['"', "'"]) {
+      const v = `${q}([^${q}]*)${q}`
+      const m = s.match(new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*content=${v}`, 'i')) || s.match(new RegExp(`<meta[^>]+content=${v}[^>]*(?:property|name)=["']${name}["']`, 'i'))
+      if (m) return decodeEntities(m[1]).trim()
+    }
+    return ''
   }
   let ld = {}
   for (const m of s.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
@@ -83,17 +85,43 @@ export function readArticle(html, url) {
   }
 }
 
-/** Figures in a text: anything with two or more digits (single digits are everywhere and prove nothing). */
-export const extractNumbers = (text) => [...new Set([...String(text).matchAll(/\d[\d,.]*\d/g)].map((m) => m[0].replace(/[.,]+$/, '')))]
-
-/** Whether a figure appears in a normalized source text, written with or without thousands separators. */
-export function numberIn(num, normText) {
-  if (normText.includes(num)) return true
-  const bare = num.replace(/,/g, '')
-  if (normText.includes(bare)) return true
-  const withCommas = bare.replace(/^(\d+)(\.\d+)?$/, (_, i, f = '') => i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + f)
-  return normText.includes(withCommas)
+/**
+ * Figures in a text: anything with two or more digits, and a single digit next to a currency sign, "%" or a
+ * magnitude word ("$9 billion", "4 percent"). Other single digits are everywhere and prove nothing.
+ */
+export function extractNumbers(text) {
+  const t = String(text).normalize('NFKC')
+  const out = [...t.matchAll(/\d[\d,.]*\d/g)].map((m) => m[0].replace(/[.,]+$/, ''))
+  for (const m of t.matchAll(/(?:[$€£¥]\s?(\d)(?!\d|[.,]\d))|(?:(?<![\d.,])(\d)(?=\s?(?:%|percent\b|per cent\b|million\b|billion\b|trillion\b|thousand\b)))/gi)) out.push(m[1] || m[2])
+  return [...new Set(out)]
 }
+
+const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** Whether a figure appears in a normalized source text as a whole number (not inside a longer one), with or without thousands separators. */
+export function numberIn(num, normText) {
+  const bare = num.replace(/,/g, '')
+  const withCommas = bare.replace(/^(\d+)(\.\d+)?$/, (_, i, f = '') => i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + f)
+  return [...new Set([num, bare, withCommas])].some((v) => new RegExp(`(?<![\\d.,])${reEsc(v)}(?![\\d]|[.,]\\d)`).test(normText))
+}
+
+/**
+ * What a program can hold quotations to: only “…” is a quotation, they pair up, and
+ * nothing else that looks like a quotation (blockquotes, other quote marks) appears. Each is at least two words, so a
+ * single common word can't pass as a quotation. Returns problems.
+ */
+export function quoteProblems(text) {
+  const t = String(text)
+  const problems = []
+  if (/^\s*>/m.test(t)) problems.push('no blockquotes: quote inline with “ ”')
+  if (/[‘«»„‟‹›＂〝〞]/.test(t)) problems.push('no quote marks other than “ ” (no ‘ « » „)')
+  const marks = [...t.matchAll(/[“”]/g)].map((m) => m[0]).join('')
+  if (!/^(“”)*$/.test(marks)) problems.push('curly quotes must open with “ and close with ” in pairs')
+  for (const q of extractQuotes(t)) if (q.split(/\s+/).filter(Boolean).length < 2) problems.push(`a quotation must be at least two words: “${q}”`)
+  return problems
+}
+
+/** Control characters (other than newline and tab) have no place in published text. */
+export const hasControlChars = (s) => /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(String(s))
 
 /** The five sections, in order. Returns problems. */
 export function checkSections(body) {
@@ -120,7 +148,6 @@ export function verifyBody(body, texts, { allowedLinks = [] } = {}) {
     else problems.push(`quote not found in any source: “${q}”`)
   }
   for (const n of extractNumbers(body)) {
-    if (/^(19|20)\d\d$/.test(n) && texts.some((t) => t.includes(n))) { numbers.push(n); continue }
     if (texts.some((t) => numberIn(n, t))) numbers.push(n)
     else problems.push(`figure not found in any source: ${n}`)
   }
@@ -128,6 +155,7 @@ export function verifyBody(body, texts, { allowedLinks = [] } = {}) {
     const u = m[0].replace(/[.,;:]+$/, '')
     if (!allowedLinks.some((a) => u === a || u.startsWith(a))) problems.push(`link not allowed: ${u}`)
   }
+  if (!allowedLinks.length && /\]\(|<a\s|(^|\s)www\./i.test(String(body))) problems.push('no links')
   return { problems, quotes, numbers }
 }
 
@@ -174,12 +202,34 @@ export function robotsDecision({ groups, signals }, url) {
 export async function canRead(url, { fetch: f = fetch, cache = new Map() } = {}) {
   const { origin } = new URL(url)
   if (!cache.has(origin)) {
-    let txt = ''
+    // RFC 9309: a missing robots.txt (4xx) allows; a server error, rate limit or unreachable site means don't read
+    let parsed
     try {
-      const r = await f(`${origin}/robots.txt`, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(15000) })
-      if (r.ok) txt = await r.text()
-    } catch {}
-    cache.set(origin, parseRobots(txt))
+      const r = await f(`${origin}/robots.txt`, { headers: { 'user-agent': UA }, redirect: 'follow', signal: AbortSignal.timeout(15000) })
+      if (r.ok) parsed = parseRobots(await r.text())
+      else if (r.status >= 400 && r.status < 500 && r.status !== 429) parsed = parseRobots('')
+      else parsed = { closed: `robots.txt answered ${r.status}` }
+    } catch { parsed = { closed: 'robots.txt unreachable' } }
+    cache.set(origin, parsed)
   }
-  return robotsDecision(cache.get(origin), url)
+  const p = cache.get(origin)
+  return p.closed ? { ok: false, why: p.closed } : robotsDecision(p, url)
+}
+
+/**
+ * Fetches a page for reading, following redirects by hand so robots.txt and Content-Signal are checked on every hop
+ * and on the final URL before any body is read. Returns { res, url } or throws with the reason.
+ */
+export async function fetchReadable(url, { fetch: f = fetch, cache = new Map(), accept = 'text/html', hops = 5 } = {}) {
+  let at = url
+  for (let i = 0; i <= hops; i++) {
+    const can = await canRead(at, { fetch: f, cache })
+    if (!can.ok) throw new Error(`closed to autonomist: ${can.why}`)
+    const res = await f(at, { headers: { 'user-agent': UA, accept }, redirect: 'manual', signal: AbortSignal.timeout(20000) })
+    const loc = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null
+    if (!loc) return { res, url: at }
+    at = new URL(loc, at).toString()
+    if (!/^https?:/.test(at)) throw new Error('redirect to a non-web address')
+  }
+  throw new Error('too many redirects')
 }

@@ -52,26 +52,50 @@ export async function refreshFollows(api, kv, actor) {
   return { follows: follows.length }
 }
 
+const enc = new TextEncoder()
+/** Cuts a string to at most `max` UTF-8 bytes, on a character boundary. */
+export function clipBytes(s, max) {
+  let out = ''
+  for (const ch of String(s || '')) {
+    if (enc.encode(out + ch).length > max) break
+    out += ch
+  }
+  return out
+}
+
+/** KV metadata for a candidate, under KV's 1,024-byte limit whatever the script. */
+export function candidateMetadata(l) {
+  const m = { u: clipBytes(l.url, 300), t: clipBytes(l.title, 200), d: clipBytes(l.description, 250), h: clipBytes(l.handle, 60), p: clipBytes(l.post, 120), at: String(l.at || '').slice(0, 30) }
+  return enc.encode(JSON.stringify(m)).length <= 1000 ? m : { ...m, d: '' }
+}
+
 /** Reads the next `n` followed accounts' recent posts and stores the links they shared as candidates. */
 export async function sweep(api, kv, n, now = Date.now()) {
   const list = await kv.get('bot:follows', 'json')
   if (!list?.follows?.length) return { skipped: 'no follow list yet' }
   const start = Number((await kv.get('bot:follows:cursor')) || 0) % list.follows.length
-  let found = 0
-  for (let k = 0; k < Math.min(n, list.follows.length); k++) {
-    const who = list.follows[(start + k) % list.follows.length]
-    const feed = await api.pub('app.bsky.feed.getAuthorFeed', { actor: who.did, limit: 10, filter: 'posts_no_replies' }).catch(() => null)
-    for (const item of feed?.feed || []) {
-      if (now - Date.parse(item.post?.indexedAt || 0) > 1.5 * DAY) continue
-      for (const l of linksFromItem(item)) {
-        const metadata = { u: l.url.slice(0, 380), t: String(l.title || '').slice(0, 140), d: String(l.description || '').slice(0, 220), h: l.handle.slice(0, 60), p: String(l.post).slice(0, 120), at: l.at }
-        await kv.put(`cand:${await hashUrl(l.url)}`, '', { metadata, expirationTtl: 2 * 86400 })
-        found++
+  let found = 0, read = 0, failed = 0
+  try {
+    for (let k = 0; k < Math.min(n, list.follows.length); k++) {
+      const who = list.follows[(start + k) % list.follows.length]
+      read++
+      const feed = await api.pub('app.bsky.feed.getAuthorFeed', { actor: who.did, limit: 10, filter: 'posts_no_replies' }).catch(() => null)
+      for (const item of feed?.feed || []) {
+        if (now - Date.parse(item.post?.indexedAt || 0) > 1.5 * DAY) continue
+        for (const l of linksFromItem(item)) {
+          if (l.url.length > 300) continue
+          try {
+            await kv.put(`cand:${await hashUrl(l.url)}`, '', { metadata: candidateMetadata(l), expirationTtl: 2 * 86400 })
+            found++
+          } catch { failed++ }
+        }
       }
     }
+  } finally {
+    // past every account read, even if one of them failed, so the sweep never sticks on one post
+    await kv.put('bot:follows:cursor', String((start + read) % list.follows.length))
   }
-  await kv.put('bot:follows:cursor', String((start + n) % list.follows.length))
-  return { read: Math.min(n, list.follows.length), links: found }
+  return { read, links: found, ...(failed ? { failed } : {}) }
 }
 
 /** Candidate links not yet covered, newest first. */

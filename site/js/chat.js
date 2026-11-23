@@ -60,7 +60,7 @@ $('access').addEventListener('submit', async (e) => {
   status('')
 })
 
-const ALLOWED = [/^\/(?!\/)/, /^#[\w-]+$/, /^https:\/\/power-explained\.jason-edelman\.org(\/|$)/, /^https:\/\/github\.com\/jedelman\/autonomist(\/|$)/]
+const ALLOWED = [/^\/(?![\/\\])/, /^#[\w-]+$/, /^https:\/\/power-explained\.jason-edelman\.org(\/|$)/, /^https:\/\/github\.com\/jedelman\/autonomist(\/|$)/]
 
 // The memory is model-written: shown as plain text, never as markup or links.
 function showMemory(memory) {

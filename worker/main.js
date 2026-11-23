@@ -68,5 +68,5 @@ async function journalIndex(req, env, ctx) {
   const index = await env.ASSETS.fetch(new Request(new URL('/content-index.json', req.url))).then((r) => r.json()).catch(() => ({}))
   const list = listHtml(listItems(index.journal, records.records, env.PUBLIC_ORIGIN))
   headers.set('Cache-Control', 'public, max-age=120')
-  return new Response(html.replace(/<div id="journal-list">[\s\S]*?<\/div>/, `<div id="journal-list">${list}</div>`), { status: 200, headers })
+  return new Response(html.replace(/<div id="journal-list">[\s\S]*?<\/div>/, () => `<div id="journal-list">${list}</div>`), { status: 200, headers })
 }

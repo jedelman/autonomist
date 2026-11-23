@@ -2,7 +2,7 @@
 // links Jason's follows shared, read the page if its publisher leaves it open, write the entry in the journal's five
 // sections, check every quotation and figure against the page by code, then store the entry in autonomist's own
 // repository and post its question on Bluesky. Nothing that fails the checks is published; the day is skipped.
-import { UA, SECTIONS, readArticle, canRead, checkSections, verifyBody, extractQuotes, normalize, slugify } from '../journal-core.js'
+import { SECTIONS, readArticle, fetchReadable, checkSections, verifyBody, extractQuotes, quoteProblems, hasControlChars, normalize, slugify } from '../journal-core.js'
 import { FRAMEWORK, frameworkSheet } from './framework.js'
 import { candidates } from './sources.js'
 import { graphemes, fits } from './text.js'
@@ -56,9 +56,12 @@ export function checkDraft(draft, article) {
   const words = body.split(/\s+/).filter(Boolean).length
   if (words < 300 || words > 1500) problems.push(`the body is ${words} words; write 500 to 900`)
   if (extractQuotes(body).length === 0) problems.push('quote the article at least once, verbatim')
-  if (/(^|\s)@[a-z0-9-]+(\.[a-z0-9-]+)+/i.test(body)) problems.push('no @handles')
+  const all = `${d.title}\n${d.summary}\n${d.question}\n${body}`
+  if (/(^|[^\w@/])@[a-z0-9-]+(\.[a-z0-9-]+)+/i.test(all)) problems.push('no @handles')
   // only curly quotes are checked, so a straight double quote could slip an unchecked quotation through
-  if (/"/.test(`${d.title}${d.summary}${d.question}${body}`)) problems.push('no straight double quotes ("): quote with curly quotes “ ” only, verbatim')
+  if (/"/.test(all)) problems.push('no straight double quotes ("): quote with curly quotes “ ” only, verbatim')
+  problems.push(...quoteProblems(all))
+  if (hasControlChars(all)) problems.push('no control characters')
   const texts = [normalize(`${article.title}\n${article.text}`), ...FRAMEWORK.map((p) => normalize(p.text))]
   const v = verifyBody(body, texts)
   problems.push(...v.problems)
@@ -99,52 +102,54 @@ async function write({ model, article, cand, example }) {
   return { draft, check }
 }
 
-async function fetchArticle(url, f) {
-  const res = await f(url, { headers: { 'user-agent': UA, accept: 'text/html' }, redirect: 'follow', signal: AbortSignal.timeout(20000) })
+/** Reads an article, checking robots.txt and Content-Signal on every redirect hop before any body is read. */
+export async function fetchArticle(url, f, cache) {
+  const { res, url: at } = await fetchReadable(url, { fetch: f, cache })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   if (!/html/i.test(res.headers.get('content-type') || '')) throw new Error('not an HTML page')
-  const html = (await res.text()).slice(0, 3_000_000)
-  return readArticle(html, res.url || url)
+  return readArticle((await res.text()).slice(0, 3_000_000), at)
 }
 
 export async function runJournal({ env, kv, api, model, day, example, fetch: f = fetch }) {
-  if (await kv.get(`journal:done:${day}`)) return { skipped: 'already published today' }
+  const done = await kv.get(`journal:done:${day}`)
+  if (done) return { ...(await announce({ kv, api, day })), published: done }
   if (await kv.get(`journal:lock:${day}`)) return { skipped: 'a run is in progress' }
   const attempts = Number((await kv.get(`journal:attempts:${day}`)) || 0)
   if (attempts >= 3) return { skipped: 'three attempts today' }
   await kv.put(`journal:attempts:${day}`, String(attempts + 1), { expirationTtl: 3 * 86400 })
-  await kv.put(`journal:lock:${day}`, '1', { expirationTtl: 900 })
+  // longer than a cron run can last (15 minutes), so two runs never overlap
+  await kv.put(`journal:lock:${day}`, '1', { expirationTtl: 1800 })
+  const covered = new Set((await kv.get('journal:covered', 'json')) || [])
   try {
-    const covered = new Set((await kv.get('journal:covered', 'json')) || [])
     const cands = await candidates(kv, covered)
     if (!cands.length) return { skipped: 'no candidate links yet' }
     const list = cands.map((c, i) => `${i}. ${c.title || '(no title)'} | ${new URL(c.url).hostname} | ${c.description || ''}`.slice(0, 400)).join('\n')
     const { data: pick } = await model.structured({ system: PICK_SYSTEM, user: list, schema: PICK_SCHEMA, effort: 'low', maxTokens: 4000 })
     const tried = []
     const robots = new Map()
-    for (const p of (pick.picks || []).slice(0, 4)) {
+    for (const p of (pick.picks || []).slice(0, 3)) {
       const cand = cands[p.index]
-      if (!cand) continue
-      const can = await canRead(cand.url, { fetch: f, cache: robots })
-      if (!can.ok) { tried.push({ url: cand.url, why: can.why }); continue }
+      if (!cand || covered.has(cand.key)) continue
+      covered.add(cand.key)
       let article
-      try { article = await fetchArticle(cand.url, f) } catch (e) { tried.push({ url: cand.url, why: String(e.message) }); continue }
+      try { article = await fetchArticle(cand.url, f, robots) } catch (e) { tried.push({ url: cand.url, why: String(e.message) }); continue }
       if (article.words < 350) { tried.push({ url: cand.url, why: `only ${article.words} words readable` }); continue }
       const { draft, check } = await write({ model, article, cand, example })
-      if (check.problems.length) { tried.push({ url: cand.url, why: `failed checks: ${check.problems.slice(0, 3).join('; ')}` }); covered.add(cand.key); continue }
+      if (check.problems.length) { tried.push({ url: cand.url, why: `failed checks: ${check.problems.slice(0, 3).join('; ')}` }); continue }
       const published = await publish({ env, kv, api, day, article, cand, draft, check })
-      covered.add(cand.key)
-      await kv.put('journal:covered', JSON.stringify([...covered].slice(-500)))
-      await kv.put(`journal:done:${day}`, published.slug, { expirationTtl: 3 * 86400 })
-      return { published: published.slug, url: published.url, tried }
+      return { published: published.slug, url: published.url, ...(await announce({ kv, api, day })), tried }
     }
-    await kv.put('journal:covered', JSON.stringify([...covered].slice(-500)))
     return { skipped: 'nothing passed', tried }
   } finally {
+    await kv.put('journal:covered', JSON.stringify([...covered].slice(-500))).catch(() => {})
     await kv.delete(`journal:lock:${day}`).catch(() => {})
   }
 }
 
+/**
+ * Stores the entry in autonomist's repository and marks the day done at once, so a later failure can never lead to
+ * a second entry. The Bluesky post is a separate step (announce), retried until it goes out.
+ */
 export async function publish({ env, kv, api, day, article, cand, draft, check }) {
   const s = await api.session()
   const slug = `${day}-${slugify(draft.title) || 'entry'}`
@@ -168,9 +173,27 @@ export async function publish({ env, kv, api, day, article, cand, draft, check }
   }
   await api.call('POST', 'com.atproto.repo.putRecord', { body: { repo: s.did, collection: COLLECTION, rkey: slug, record: JSON.parse(JSON.stringify(record)) } })
   const url = `${(env.PUBLIC_ORIGIN || 'https://autonomist.jason-edelman.org').replace(/\/$/, '')}/journal/${slug}/`
-  // the question leads; the entry rides along as a link card
-  const text = [`${draft.question}\n\nFrom today's journal: ${draft.title}`, draft.question].find(fits)
-  const post = await api.post({ text, card: { uri: url, title: draft.title, description: draft.summary } })
-  await kv.put(`journal:root:${post.uri}`, JSON.stringify({ slug, title: draft.title, summary: draft.summary, question: draft.question, url }), { expirationTtl: 60 * 86400 })
-  return { slug, url, post: post.uri }
+  await kv.put(`journal:done:${day}`, slug, { expirationTtl: 3 * 86400 })
+  await kv.put(`journal:announce:${day}`, JSON.stringify({ slug, url, title: draft.title, summary: draft.summary, question: draft.question }), { expirationTtl: 3 * 86400 })
+  return { slug, url }
+}
+
+/** Posts the day's entry on Bluesky, once: the question leads and the entry rides along as a link card. */
+export async function announce({ kv, api, day }) {
+  const a = await kv.get(`journal:announce:${day}`, 'json')
+  if (!a || a.post) return { announced: a?.post || null }
+  if (a.claimed) return { announced: null, note: 'an earlier post attempt may have gone out; not posting again' }
+  await kv.put(`journal:announce:${day}`, JSON.stringify({ ...a, claimed: true }), { expirationTtl: 3 * 86400 })
+  const text = [`${a.question}\n\nFrom today's journal: ${a.title}`, a.question].find(fits)
+  let post
+  try {
+    post = await api.post({ text, card: { uri: a.url, title: a.title, description: a.summary } })
+  } catch (e) {
+    // the post goes to autonomist's own PDS in-process, so a failure here means it didn't go out: release the claim
+    await kv.put(`journal:announce:${day}`, JSON.stringify({ ...a, claimed: false }), { expirationTtl: 3 * 86400 })
+    throw e
+  }
+  await kv.put(`journal:announce:${day}`, JSON.stringify({ ...a, claimed: true, post: post.uri }), { expirationTtl: 3 * 86400 })
+  await kv.put(`journal:root:${post.uri}`, JSON.stringify({ slug: a.slug, title: a.title, summary: a.summary, question: a.question, url: a.url }), { expirationTtl: 60 * 86400 })
+  return { announced: post.uri }
 }

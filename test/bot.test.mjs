@@ -8,6 +8,9 @@ import { checkDraft, runJournal, COLLECTION } from '../worker/bot/journal.js'
 import { runReplies, vetReply } from '../worker/bot/replies.js'
 import { ensurePinned, runOptin, PINNED_TEXT, PROFILE_DESCRIPTION } from '../worker/bot/optin.js'
 import { checkQuestion, dueSlot, runQuestion } from '../worker/bot/questions.js'
+import { fetchReadable, numberIn, normalize, readArticle } from '../worker/journal-core.js'
+import { candidateMetadata } from '../worker/bot/sources.js'
+import { fillShell } from '../worker/journal-pages.js'
 import { structured, BudgetError } from '../worker/bot/model.js'
 import { client, jwtExp } from '../worker/bot/atproto.js'
 import { entryHtml, listItems } from '../worker/journal-pages.js'
@@ -87,7 +90,7 @@ function fakeApi({ notifications = [], threads = {}, likes = [], feeds = {} } = 
     call: async (method, nsid, opts) => {
       calls.push({ method, nsid, opts })
       if (nsid === 'app.bsky.notification.listNotifications') return { notifications }
-      if (nsid === 'com.atproto.repo.getRecord') return { uri: 'at://did:plc:me/app.bsky.actor.profile/self', cid: 'c0', value: { $type: 'app.bsky.actor.profile', displayName: 'autonomist', labels: { values: [{ val: 'bot' }] } } }
+      if (nsid === 'com.atproto.repo.getRecord') return { uri: 'at://did:plc:me/app.bsky.actor.profile/self', cid: 'c0', value: { $type: 'app.bsky.actor.profile', displayName: 'autonomist', labels: { $type: 'com.atproto.label.defs#selfLabels', values: [{ val: 'bot' }] } } }
       return { uri: 'at://x', cid: 'c' }
     },
     pub: async (nsid, p) => {
@@ -118,7 +121,9 @@ test('journal: picks, reads an open page, writes, checks, stores the record in i
   assert.ok(api.posts[0].text.startsWith('Who on your block would you call first?'))
   assert.equal(api.posts[0].card.uri, `https://autonomist.jason-edelman.org/journal/${r.published}/`)
   assert.ok(await kv.get('journal:done:2026-11-24'))
-  assert.deepEqual(await runJournal({ env: {}, kv, api, model, day: '2026-11-24', fetch: f }), { skipped: 'already published today' })
+  const again = await runJournal({ env: {}, kv, api, model, day: '2026-11-24', fetch: f })
+  assert.equal(again.published, r.published)
+  assert.equal(api.posts.length, 1)
 })
 
 test('journal: a page closed by Content-Signal is never fetched, and a draft that fails twice is not published', async () => {
@@ -189,7 +194,8 @@ test('opt-in: the pinned post is made once, pinned, and described; likers get at
   assert.equal(p.created, true)
   const prof = api.calls.find((c) => c.nsid === 'com.atproto.repo.putRecord').opts.body.record
   assert.equal(prof.pinnedPost.uri, 'at://did:plc:me/app.bsky.feed.post/1')
-  assert.deepEqual(prof.labels, { values: [{ val: 'bot' }] })
+  assert.deepEqual(prof.labels, { $type: 'com.atproto.label.defs#selfLabels', values: [{ val: 'bot' }] })
+  assert.equal(prof.displayName, 'autonomist')
   assert.deepEqual(await ensurePinned({ kv, api }), { pinned: 'known' })
   const model = { structured: async () => ({ data: { action: 'reply', text: 'Who else in your building got that notice?', why: '' } }) }
   const r = await runOptin({ env: {}, kv, api, model, day: '2026-11-24' })
@@ -298,4 +304,137 @@ test('questions: at a due slot, reads an open article, posts the question with t
   assert.equal(api.posts[0].card.description, 'The sale.')
   assert.deepEqual(await runQuestion({ env: {}, kv, api, model, day: '2026-11-24', now, fetch: f }), { skipped: 'already asked this slot' })
   assert.deepEqual(await runQuestion({ env: {}, kv, api, model, day: '2026-11-24', now: new Date('2026-11-24T10:00:00Z'), fetch: f }), { skipped: 'no question due yet' })
+})
+
+// Regression tests for the independent review's reproduced findings (2026-11-23).
+
+test('review 1: a failing profile write never posts the opt-in post twice; an unreadable profile is never overwritten', async () => {
+  const kv = memoryKV()
+  const api = fakeApi()
+  const real = api.call
+  let fail = 2
+  api.call = async (m, nsid, o) => { if (nsid === 'com.atproto.repo.putRecord' && fail-- > 0) throw new Error('putRecord 400'); return real(m, nsid, o) }
+  await assert.rejects(ensurePinned({ kv, api }))
+  await assert.rejects(ensurePinned({ kv, api }))
+  await ensurePinned({ kv, api })
+  assert.equal(api.posts.length, 1)
+  const kv2 = memoryKV(), api2 = fakeApi()
+  api2.call = async (m, nsid) => { if (nsid === 'com.atproto.repo.getRecord') { const e = new Error('getRecord 500'); e.status = 500; throw e } return {} }
+  await assert.rejects(ensurePinned({ kv: kv2, api: api2 }))
+  assert.equal(api2.posts.length, 0)
+})
+
+const note = (i, reason, author, parentUri = 'at://did:plc:me/app.bsky.feed.post/root') => ({ uri: `at://did:plc:u/app.bsky.feed.post/${i}`, cid: `c${i}`, reason, indexedAt: `2026-11-24T00:0${i}:00.000Z`, author, record: reason === 'reply' ? { reply: { root: { uri: 'at://did:plc:me/app.bsky.feed.post/root', cid: 'rc' }, parent: { uri: parentUri, cid: 'pc' } } } : { text: 'hi @autonomist' } })
+const human = { did: 'did:plc:u', handle: 'u.example' }
+
+test('review 2-3: one failing notification is passed, not retried; a failure after posting never posts again', async () => {
+  const kv = memoryKV()
+  await kv.put('bot:notif:seen', '2026-11-24T00:00:00.000Z')
+  const api = fakeApi({ notifications: [note(1, 'reply', human), note(2, 'mention', human)] })
+  let calls = 0
+  const model = { structured: async () => { calls++; if (calls === 1) throw new Error('the model declined'); return { data: { action: 'reply', text: 'Who decides that where you live?', why: '' } } } }
+  const r = await runReplies({ env: {}, kv, api, model, day: '2026-11-24' })
+  assert.ok(r.handled[0].error)
+  assert.equal(api.posts.length, 1)
+  await kv.put('bot:notif:seen', '2026-11-24T00:00:00.000Z')
+  await runReplies({ env: {}, kv, api, model, day: '2026-11-24' })
+  assert.equal(calls, 2)
+  assert.equal(api.posts.length, 1)
+})
+
+test('review 4: a post that mentions autonomist and is seen by the opt-in sweep gets one answer', async () => {
+  const kv = memoryKV()
+  await kv.put('bot:notif:seen', '2026-11-24T00:00:00.000Z')
+  const postUri = 'at://did:plc:h/app.bsky.feed.post/1'
+  const api = fakeApi({
+    notifications: [{ uri: postUri, cid: 'h1', reason: 'mention', indexedAt: '2026-11-24T00:01:00.000Z', author: { did: 'did:plc:h', handle: 'h.example' }, record: { text: '@autonomist rent again' } }],
+    likes: [{ actor: { did: 'did:plc:h', handle: 'h.example' } }],
+    feeds: { 'did:plc:h': [{ post: { uri: postUri, cid: 'h1', author: { did: 'did:plc:h' }, indexedAt: new Date().toISOString(), record: { text: '@autonomist rent again' } } }] },
+  })
+  await kv.put('bot:pinned', JSON.stringify({ uri: 'at://did:plc:me/app.bsky.feed.post/p', cid: 'p' }))
+  const model = { structured: async () => ({ data: { action: 'reply', text: 'Who else got that notice?', why: '' } }) }
+  await runReplies({ env: {}, kv, api, model, day: '2026-11-24' })
+  await runOptin({ env: {}, kv, api, model, day: '2026-11-24' })
+  assert.equal(api.posts.filter((p) => p.reply?.parent?.uri === postUri).length, 1)
+})
+
+test('review 5: a failed announcement never makes a second entry, and is retried until it goes out', async () => {
+  const kv = memoryKV()
+  await kv.put('cand:abc', '', { metadata: { u: article.url, t: article.title, at: new Date().toISOString() } })
+  const api = fakeApi()
+  const realPost = api.post
+  let fail = 1
+  api.post = async (p) => { if (fail-- > 0) throw new Error('createRecord 500'); return realPost(p) }
+  const answers = [{ picks: [{ index: 0, why: '' }] }, draft(), { picks: [{ index: 0, why: '' }] }, draft({ title: 'Second take' })]
+  const model = { structured: async () => ({ data: answers.shift() }) }
+  const html = `<p>${ARTICLE_TEXT} ${'More reporting on the sale and the tenants. '.repeat(40)}</p>`
+  const f = async (url) => (String(url).endsWith('/robots.txt') ? new Response('', { status: 404 }) : new Response(html, { headers: { 'content-type': 'text/html' } }))
+  await assert.rejects(runJournal({ env: {}, kv, api, model, day: '2026-11-24', fetch: f }))
+  const r2 = await runJournal({ env: {}, kv, api, model, day: '2026-11-24', fetch: f })
+  assert.ok(r2.announced)
+  assert.equal(api.calls.filter((c) => c.nsid === 'com.atproto.repo.putRecord').length, 1)
+  assert.equal(api.posts.length, 1)
+})
+
+test('review 6-7: figures must match whole numbers; blockquotes, other quote marks and one-word quotes are refused', () => {
+  const t = normalize(article.text + ' Published in 2026.')
+  assert.equal(numberIn('14', t), false)
+  assert.equal(numberIn('20', t), false)
+  assert.equal(numberIn('140', t), true)
+  const bad = (what) => checkDraft(draft({ sections: { 'What it says': `${what} “We found out from the newspaper.”` } }), article).problems
+  assert.ok(bad('Rents rose 14 percent.').includes('figure not found in any source: 14'))
+  assert.ok(bad('\n> Tenants were thrilled.\n').some((p) => p.startsWith('no blockquotes')))
+  assert.ok(bad('They said ‘never asked.’').some((p) => p.startsWith('no quote marks')))
+  assert.ok(bad('A “private” deal.').some((p) => p.startsWith('a quotation must be at least two words')))
+  assert.ok(bad('[report](/\\evil.example/x)').includes('no links'))
+  assert.ok(checkQuestion({ framing: 'Rents rose 14 percent, says the report.', question: 'Who owns yours?' }, article).problems.includes('figure not found in any source: 14'))
+})
+
+test('review 8, 14: pages refuse /\\host links, and $ patterns in third-party text are inert', () => {
+  const html = entryHtml({ title: 'T', date: '2026-11-24', sources: [], body: '[x](/\\evil.example/a) \u0001<1>\u0001' }, { uri: 'at://x', origin: 'https://autonomist.jason-edelman.org' })
+  assert.ok(!html.includes('href="/\\evil.example/a"'))
+  const shell = '<head>HEAD</head><title>{{journal:title}}</title><main><!--journal:content--></main>'
+  const out = fillShell(shell, { title: 'Evil $` Outlet', description: '', content: 'body $& end' })
+  assert.equal((out.match(/HEAD/g) || []).length, 1)
+  assert.ok(out.includes('body $&amp;') || out.includes('body $& end'))
+})
+
+test('review 9: a redirect to a closed site is never read, and a robots.txt server error counts as closed', async () => {
+  const seen = []
+  const f = async (url, opts = {}) => {
+    seen.push(String(url))
+    if (String(url) === 'https://short.example/robots.txt') return new Response('', { status: 404 })
+    if (String(url) === 'https://closed.example/robots.txt') return new Response('User-agent: *\nDisallow: /')
+    if (String(url) === 'https://short.example/x') return new Response('', { status: 301, headers: { location: 'https://closed.example/story' } })
+    if (String(url) === 'https://down.example/robots.txt') return new Response('', { status: 503 })
+    return new Response('<p>body</p>', { headers: { 'content-type': 'text/html' } })
+  }
+  await assert.rejects(fetchReadable('https://short.example/x', { fetch: f }), /closed/)
+  assert.ok(!seen.includes('https://closed.example/story'))
+  await assert.rejects(fetchReadable('https://down.example/a', { fetch: f }), /503/)
+  assert.ok(!seen.includes('https://down.example/a'))
+})
+
+test('review 10-11: replies between other people are not answered; replies past the first page are', async () => {
+  const kv = memoryKV()
+  await kv.put('bot:notif:seen', '2026-11-24T00:00:00.000Z')
+  const pages = [
+    { notifications: [note(3, 'reply', human, 'at://did:plc:other/app.bsky.feed.post/9')], cursor: 'p2' },
+    { notifications: [note(2, 'reply', human)] },
+  ]
+  const api = fakeApi()
+  const real = api.call
+  api.call = async (m, nsid, o) => (nsid === 'app.bsky.notification.listNotifications' ? (o.params.cursor ? pages[1] : pages[0]) : real(m, nsid, o))
+  const model = { structured: async () => ({ data: { action: 'reply', text: 'Who decides that?', why: '' } }) }
+  await runReplies({ env: {}, kv, api, model, day: '2026-11-24' })
+  assert.equal(api.posts.length, 1)
+  assert.equal(api.posts[0].reply.parent.uri, 'at://did:plc:u/app.bsky.feed.post/2')
+})
+
+test('review 13, 15: candidate metadata stays under 1,000 bytes in any script; headlines keep their apostrophes', () => {
+  const m = candidateMetadata({ url: 'https://ja.example/a', title: '住'.repeat(140), description: '宅'.repeat(220), handle: 'h.example', post: 'at://x', at: new Date().toISOString() })
+  assert.ok(new TextEncoder().encode(JSON.stringify(m)).length <= 1000)
+  const a = readArticle(`<meta property="og:title" content="Workers' co-op buys the mill"><meta property="og:site_name" content="The Mill's Paper">`, 'https://m.example/a')
+  assert.equal(a.title, "Workers' co-op buys the mill")
+  assert.equal(a.siteName, "The Mill's Paper")
 })

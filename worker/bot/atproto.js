@@ -18,7 +18,7 @@ export function client(env, { pdsFetch, kv, fetch: f = fetch, now = () => Date.n
 
   async function raw(method, nsid, { params, body, token } = {}) {
     const url = new URL(`/xrpc/${nsid}`, base)
-    for (const [k, v] of Object.entries(params || {})) if (v !== undefined && v !== null) url.searchParams.set(k, String(v))
+    for (const [k, v] of Object.entries(params || {})) for (const x of [].concat(v)) if (x !== undefined && x !== null) url.searchParams.append(k, String(x))
     const headers = {}
     if (body) headers['content-type'] = 'application/json'
     if (token) headers.authorization = `Bearer ${token}`
@@ -48,10 +48,20 @@ export function client(env, { pdsFetch, kv, fetch: f = fetch, now = () => Date.n
         await store(r)
         console.log(JSON.stringify({ bot: 'session', how: 'refresh' }))
         return r
-      } catch {}
+      } catch (e) {
+        // only a refresh token the PDS won't accept calls for a new login; anything else (a 5xx, say) waits
+        if (e.status !== 400 && e.status !== 401) throw e
+      }
     }
     if (!env.PDS_PASSWORD) throw new Error('no PDS_PASSWORD: the bot cannot sign in')
-    const r = await raw('POST', 'com.atproto.server.createSession', { body: { identifier: env.BOT_HANDLE || 'autonomist.jason-edelman.org', password: env.PDS_PASSWORD } })
+    if (await kv.get('bot:login:backoff')) throw new Error('a recent login failed; waiting before trying again')
+    let r
+    try {
+      r = await raw('POST', 'com.atproto.server.createSession', { body: { identifier: env.BOT_HANDLE || 'autonomist.jason-edelman.org', password: env.PDS_PASSWORD } })
+    } catch (e) {
+      await kv.put('bot:login:backoff', String(e.status || 'error'), { expirationTtl: 900 })
+      throw e
+    }
     await store(r)
     const day = new Date(now()).toISOString().slice(0, 10)
     const n = Number((await kv.get(`bot:logins:${day}`)) || 0) + 1
@@ -78,7 +88,7 @@ export function client(env, { pdsFetch, kv, fetch: f = fetch, now = () => Date.n
 
   async function pub(nsid, params = {}) {
     const url = new URL(`/xrpc/${nsid}`, PUBLIC_API)
-    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null) url.searchParams.set(k, String(v))
+    for (const [k, v] of Object.entries(params)) for (const x of [].concat(v)) if (x !== undefined && x !== null) url.searchParams.append(k, String(x))
     const res = await f(url, { headers: { 'user-agent': UA, accept: 'application/json' }, signal: AbortSignal.timeout(15000) })
     if (!res.ok) throw new Error(`${nsid} ${res.status}`)
     return res.json()

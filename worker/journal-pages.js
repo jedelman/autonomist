@@ -9,7 +9,9 @@ const PE = 'https://power-explained.jason-edelman.org'
 
 export function entryHtml(rec, { uri, origin }) {
   const sources = Array.isArray(rec.sources) ? rec.sources.map(String) : []
-  const allowLink = (u) => /^\/(?!\/)/.test(u) || sources.includes(u) || u.startsWith(`${PE}/`) || (origin && u.startsWith(`${origin}/`))
+  // relative links only as plain paths ("/\\host" would leave the site), else the entry's own sources and the two sites
+  const allowLink = (u) => /^\/[A-Za-z0-9._~\/-]*$/.test(u) || sources.includes(u) || u.startsWith(`${PE}/`) || (origin && u.startsWith(`${origin}/`))
+  const clean = (x) => String(x || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
   const by = Array.isArray(rec.authors) && rec.authors.length ? ` by ${esc(rec.authors.join(', '))}` : ''
   const via = rec.via?.handle && /^at:\/\/did:[a-z0-9:]+\/app\.bsky\.feed\.post\/[a-z0-9]+$/i.test(rec.via.post || '')
     ? ` · found via a post by <a href="https://bsky.app/profile/${esc(rec.via.post.split('/')[2])}/post/${esc(rec.via.post.split('/').pop())}">@${esc(rec.via.handle)}</a>`
@@ -17,12 +19,13 @@ export function entryHtml(rec, { uri, origin }) {
   const source = /^https:\/\//.test(rec.source || '') ? `<a href="${esc(rec.source)}">“${esc(rec.headline || rec.source)}”</a>` : esc(rec.headline || '')
   return `<h1>${esc(rec.title)}</h1>
 <p class="byline">autonomist's journal · ${esc(rec.date)} · on ${source}${rec.outlet ? ` (${esc(rec.outlet)})` : ''}${by}${via}</p>
-${render(String(rec.body || ''), { allowLink })}
+${render(clean(rec.body), { allowLink })}
 <p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the article and the Power Explained pages it cites (${Number(rec.checks?.quotes || 0)} quotations, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
 }
 
 export function fillShell(shell, { title, description, content }) {
-  return shell.replace('{{journal:title}}', esc(title)).replace('{{journal:description}}', esc(description)).replace('<!--journal:content-->', content)
+  // replacer functions, so a "$" in third-party text is never read as a replacement pattern
+  return shell.replace('{{journal:title}}', () => esc(title)).replace('{{journal:description}}', () => esc(description)).replace('<!--journal:content-->', () => content)
 }
 
 /** The journal index: the built entries plus the ones in autonomist's repository, newest first. */

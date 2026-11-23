@@ -49,58 +49,88 @@ export function vetReply(text) {
   return { ok: true, text: t, links }
 }
 
+/**
+ * The claim every path that answers a post shares (replies and opt-in), written before the model is called and
+ * before anything is posted: at most one answer per post, even if a later step fails.
+ */
+export async function claim(kv, uri) {
+  if (await kv.get(`answered:${uri}`)) return false
+  await kv.put(`answered:${uri}`, 'pending', { expirationTtl: 30 * 86400 })
+  return true
+}
+
 export async function runReplies({ env, kv, api, model, day, now = new Date() }) {
-  const s = await api.session()
-  const me = s.did
-  let seen = await kv.get('bot:notif:seen')
-  if (!seen) seen = new Date(now.getTime() - 3600_000).toISOString()
-  const r = await api.call('GET', 'app.bsky.notification.listNotifications', { params: { limit: 50 } })
-  const all = (r.notifications || []).filter((n) => n.indexedAt > seen)
-  const todo = all.filter((n) => ['reply', 'mention'].includes(n.reason) && n.author?.did !== me).sort((a, b) => a.indexedAt.localeCompare(b.indexedAt))
-  const perTick = setting(env.BOT_REPLIES_PER_TICK, 6, { min: 0, max: 20 })
-  const daily = setting(env.BOT_REPLIES_DAILY, 150, { min: 0 })
-  const done = []
-  let cursor = seen, stopped = false, calls = 0
-  for (const n of todo) {
-    if (calls >= perTick || Number((await kv.get(`bot:replies:${day}`)) || 0) >= daily) { stopped = true; break }
-    if (!(await kv.get(`replied:${n.uri}`))) {
-      const rootUri = n.record?.reply?.root?.uri || n.uri
-      const threadKey = `bot:thread:${day}:${await hashUrl(rootUri)}`
-      const inThread = Number((await kv.get(threadKey)) || 0)
-      if (inThread >= (isBot(n.author) ? 2 : 8)) {
-        await kv.put(`replied:${n.uri}`, 'cap', { expirationTtl: 14 * 86400 })
-        done.push({ uri: n.uri, skipped: 'thread cap' })
-      } else {
-        calls++
-        const lines = await threadLines(api, n.uri, me)
-        const journal = await kv.get(`journal:root:${rootUri}`, 'json')
-        const note = journal ? `\n\nThe thread starts from your journal entry "${journal.title}" (${journal.url}). Its summary: ${journal.summary} Its question: ${journal.question}` : ''
-        let out = null
-        for (let attempt = 0; attempt < 2 && !out; attempt++) {
-          const { data } = await model.structured({ system: REPLY_SYSTEM, user: `THREAD (oldest first)\n${lines.join('\n')}${note}${attempt ? '\n\nYour last reply was rejected (too long, or an @handle or link that is not allowed). Write it again, shorter.' : ''}`, schema: REPLY_SCHEMA, effort: 'medium', maxTokens: 6000 })
-          if (data.action === 'skip') { out = { skip: data.why || 'skipped' }; break }
-          const v = vetReply(data.text)
-          if (v.ok) out = v
-        }
-        if (!out || out.skip) {
-          await kv.put(`replied:${n.uri}`, 'skip', { expirationTtl: 14 * 86400 })
-          done.push({ uri: n.uri, skipped: out?.skip || 'no acceptable reply' })
-        } else {
-          const parent = { uri: n.uri, cid: n.cid }
-          const root = n.record?.reply?.root || parent
-          const posted = await api.post({ text: out.text, links: out.links, reply: { root, parent } })
-          await kv.put(`replied:${n.uri}`, posted.uri, { expirationTtl: 14 * 86400 })
-          await bump(kv, threadKey)
-          await bump(kv, `bot:replies:${day}`)
-          done.push({ uri: n.uri, replied: posted.uri })
-        }
-      }
+  if (await kv.get('bot:replies:lock')) return { skipped: 'a run is in progress' }
+  await kv.put('bot:replies:lock', '1', { expirationTtl: 600 })
+  try {
+    const s = await api.session()
+    const me = s.did
+    const seen = (await kv.get('bot:notif:seen')) || new Date(now.getTime() - 3600_000).toISOString()
+    // only replies and mentions, paged back to the cursor (likes on the pinned post can't push them off a page)
+    const all = []
+    let cursor
+    for (let page = 0; page < 5; page++) {
+      const r = await api.call('GET', 'app.bsky.notification.listNotifications', { params: { limit: 50, reasons: ['reply', 'mention'], cursor } })
+      const batch = r.notifications || []
+      all.push(...batch.filter((n) => n.indexedAt >= seen))
+      cursor = r.cursor
+      if (!cursor || !batch.length || batch.some((n) => n.indexedAt < seen)) break
     }
-    cursor = n.indexedAt
+    const mine = (uri) => typeof uri === 'string' && uri.startsWith(`at://${me}/`)
+    // a reply counts only when it answers one of autonomist's own posts, not a reply further down someone else's thread
+    const todo = all
+      .filter((n) => n.author?.did !== me && (n.reason === 'mention' || (n.reason === 'reply' && mine(n.record?.reply?.parent?.uri))))
+      .sort((a, b) => a.indexedAt.localeCompare(b.indexedAt))
+    const perTick = setting(env.BOT_REPLIES_PER_TICK, 6, { min: 0, max: 20 })
+    const daily = setting(env.BOT_REPLIES_DAILY, 150, { min: 0 })
+    const done = []
+    let reached = seen, stopped = false, calls = 0
+    for (const n of todo) {
+      if (calls >= perTick || Number((await kv.get(`bot:replies:${day}`)) || 0) >= daily) { stopped = true; break }
+      try {
+        const rootUri = n.record?.reply?.root?.uri || n.uri
+        const threadKey = `bot:thread:${day}:${await hashUrl(rootUri)}`
+        const inThread = Number((await kv.get(threadKey)) || 0)
+        if (inThread >= (isBot(n.author) ? 2 : 8)) {
+          done.push({ uri: n.uri, skipped: 'thread cap' })
+        } else if (await claim(kv, n.uri)) {
+          calls++
+          const lines = await threadLines(api, n.uri, me)
+          const journal = await kv.get(`journal:root:${rootUri}`, 'json')
+          const note = journal ? `\n\nThe thread starts from your journal entry "${journal.title}" (${journal.url}). Its summary: ${journal.summary} Its question: ${journal.question}` : ''
+          let out = null
+          for (let attempt = 0; attempt < 2 && !out; attempt++) {
+            const { data } = await model.structured({ system: REPLY_SYSTEM, user: `THREAD (oldest first)\n${lines.join('\n')}${note}${attempt ? '\n\nYour last reply was rejected (too long, or an @handle or link that is not allowed). Write it again, shorter.' : ''}`, schema: REPLY_SCHEMA, effort: 'medium', maxTokens: 6000 })
+            if (data.action === 'skip') { out = { skip: data.why || 'skipped' }; break }
+            const v = vetReply(data.text)
+            if (v.ok) out = v
+          }
+          if (!out || out.skip) {
+            await kv.put(`answered:${n.uri}`, 'skip', { expirationTtl: 30 * 86400 })
+            done.push({ uri: n.uri, skipped: out?.skip || 'no acceptable reply' })
+          } else {
+            const parent = { uri: n.uri, cid: n.cid }
+            const root = n.record?.reply?.root || parent
+            const posted = await api.post({ text: out.text, links: out.links, reply: { root, parent } })
+            await kv.put(`answered:${n.uri}`, posted.uri, { expirationTtl: 30 * 86400 })
+            await bump(kv, threadKey)
+            await bump(kv, `bot:replies:${day}`)
+            done.push({ uri: n.uri, replied: posted.uri })
+          }
+        }
+      } catch (e) {
+        // one bad notification (a refusal, a deleted post) is noted and passed, never retried every tick
+        done.push({ uri: n.uri, error: String(e?.message || e).slice(0, 160) })
+        await kv.put(`answered:${n.uri}`, 'error', { expirationTtl: 30 * 86400 }).catch(() => {})
+      }
+      reached = n.indexedAt
+    }
+    // past everything fetched, unless a cap stopped the loop: then only past what was handled
+    const newest = stopped ? reached : all.reduce((m, n) => (n.indexedAt > m ? n.indexedAt : m), seen)
+    if (newest !== seen) await kv.put('bot:notif:seen', newest)
+    if (all.length) await api.call('POST', 'app.bsky.notification.updateSeen', { body: { seenAt: newest } }).catch(() => {})
+    return { notifications: all.length, handled: done }
+  } finally {
+    await kv.delete('bot:replies:lock').catch(() => {})
   }
-  // past everything fetched, unless a cap stopped the loop: then only past what was handled
-  const newest = stopped ? cursor : all.reduce((m, n) => (n.indexedAt > m ? n.indexedAt : m), seen)
-  await kv.put('bot:notif:seen', newest)
-  if (all.length) await api.call('POST', 'app.bsky.notification.updateSeen', { body: { seenAt: newest } }).catch(() => {})
-  return { notifications: all.length, handled: done }
 }

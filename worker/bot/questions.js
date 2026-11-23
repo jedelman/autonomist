@@ -3,9 +3,9 @@
 // follows shared, and posts one plain sentence on what it reports and one open question about the reader's own
 // place, with the article as a link card. Freire's generative themes: the question starts from people's lives.
 // The sentence is held to the journal's standard: quotations verbatim, figures as the article gives them.
-import { UA, readArticle, canRead, verifyBody, normalize } from '../journal-core.js'
+import { verifyBody, quoteProblems, hasControlChars, normalize } from '../journal-core.js'
 import { candidates } from './sources.js'
-import { PICK_SYSTEM, PICK_SCHEMA } from './journal.js'
+import { PICK_SYSTEM, PICK_SCHEMA, fetchArticle } from './journal.js'
 import { graphemes, fits } from './text.js'
 import { obj, BudgetError } from './model.js'
 
@@ -30,18 +30,14 @@ export function checkQuestion(q, article) {
   const text = `${framing}\n\n${question}`
   if (!fits(text) || graphemes(text) > 280) problems.push('too long: keep both parts under 260 characters')
   if (/https?:\/\//i.test(text)) problems.push('no links')
-  if (/(^|\s)@[a-z0-9-]+(\.[a-z0-9-]+)+/i.test(text)) problems.push('no @handles')
-  if (/#[a-z]/i.test(text)) problems.push('no hashtags')
+  if (/(^|[^\w@/])@[a-z0-9-]+(\.[a-z0-9-]+)+/i.test(text)) problems.push('no @handles')
+  if (/(^|\s)#[a-z]/i.test(text)) problems.push('no hashtags')
   if (/"/.test(text)) problems.push('no straight double quotes (")')
+  problems.push(...quoteProblems(text))
+  if (hasControlChars(text)) problems.push('no control characters')
+  if (/\]\(|www\./i.test(text)) problems.push('no links')
   problems.push(...verifyBody(text, [normalize(`${article.title}\n${article.text}`)]).problems)
   return problems.length ? { problems } : { problems, text }
-}
-
-async function fetchArticle(url, f) {
-  const res = await f(url, { headers: { 'user-agent': UA, accept: 'text/html' }, redirect: 'follow', signal: AbortSignal.timeout(20000) })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  if (!/html/i.test(res.headers.get('content-type') || '')) throw new Error('not an HTML page')
-  return readArticle((await res.text()).slice(0, 3_000_000), res.url || url)
 }
 
 /** The scheduled hour this tick belongs to (the latest one passed today), or null before the first. */
@@ -62,21 +58,20 @@ export async function runQuestion({ env, kv, api, model, day, now = new Date(), 
   if (await kv.get(`${key}:lock`)) return { skipped: 'a run is in progress' }
   await kv.put(`${key}:lock`, '1', { expirationTtl: 600 })
   await kv.put(`${key}:tries`, String(tries + 1), { expirationTtl: 2 * 86400 })
+  const asked = (await kv.get('questions:covered', 'json')) || []
   try {
-    const covered = new Set([...((await kv.get('journal:covered', 'json')) || []), ...((await kv.get('questions:covered', 'json')) || [])])
+    const covered = new Set([...((await kv.get('journal:covered', 'json')) || []), ...asked])
     const cands = await candidates(kv, covered)
     if (!cands.length) return { skipped: 'no candidate links' }
     const list = cands.map((c, i) => `${i}. ${c.title || '(no title)'} | ${new URL(c.url).hostname} | ${c.description || ''}`.slice(0, 400)).join('\n')
     const { data: pick } = await model.structured({ system: PICK_SYSTEM, user: list, schema: PICK_SCHEMA, effort: 'low', maxTokens: 4000 })
     const robots = new Map()
-    const asked = (await kv.get('questions:covered', 'json')) || []
     for (const p of (pick.picks || []).slice(0, 3)) {
       const cand = cands[p.index]
-      if (!cand) continue
+      if (!cand || asked.includes(cand.key)) continue
       asked.push(cand.key)
-      if (!(await canRead(cand.url, { fetch: f, cache: robots })).ok) continue
       let article
-      try { article = await fetchArticle(cand.url, f) } catch { continue }
+      try { article = await fetchArticle(cand.url, f, robots) } catch { continue }
       if (article.words < 250) continue
       let out = null, user = `ARTICLE\nHeadline: ${article.title}\nOutlet: ${article.siteName}\nURL: ${article.url}\n\n${article.text.slice(0, 60_000)}`
       for (let attempt = 0; attempt < 2 && !out; attempt++) {
@@ -86,17 +81,24 @@ export async function runQuestion({ env, kv, api, model, day, now = new Date(), 
         else user += `\n\nYOUR DRAFT\n${JSON.stringify(data)}\nA program rejected it: ${c.problems.join('; ')}. Write it again and fix that.`
       }
       if (!out) continue
-      const posted = await api.post({ text: out, card: { uri: article.url, title: article.title, description: article.description } })
+      // claim the slot before posting, so a failure after the post can never lead to a second one
+      await kv.put(key, 'pending', { expirationTtl: 3 * 86400 })
+      let posted
+      try {
+        posted = await api.post({ text: out, card: { uri: article.url, title: article.title, description: article.description } })
+      } catch (e) {
+        await kv.delete(key) // a failed post to its own PDS didn't go out: the slot may be tried again
+        throw e
+      }
       await kv.put(key, posted.uri, { expirationTtl: 3 * 86400 })
-      await kv.put('questions:covered', JSON.stringify(asked.slice(-500)))
       return { asked: posted.uri, slot, source: article.url }
     }
-    await kv.put('questions:covered', JSON.stringify(asked.slice(-500)))
     return { skipped: 'nothing passed', slot }
   } catch (e) {
     if (e instanceof BudgetError) return { skipped: e.message }
     throw e
   } finally {
+    await kv.put('questions:covered', JSON.stringify(asked.slice(-500))).catch(() => {})
     await kv.delete(`${key}:lock`).catch(() => {})
   }
 }

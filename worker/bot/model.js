@@ -36,9 +36,10 @@ export async function structured({ env, kv, day, system, user, schema, effort = 
   })
   const usd = priceOf(model, res.usage) || 0
   const micros = Math.round(usd * 1e6)
+  // fails closed: if the spend can't be recorded, the step stops here rather than spend uncounted
   await Promise.all([
-    recordSpend(kv, day, usd).catch(() => {}),
-    micros ? kv.put(`botspend:${day}:${crypto.randomUUID()}`, '', { metadata: { micros }, expirationTtl: 8 * 86400 }).catch(() => {}) : null,
+    recordSpend(kv, day, usd),
+    micros ? kv.put(`botspend:${day}:${crypto.randomUUID()}`, '', { metadata: { micros }, expirationTtl: 8 * 86400 }) : null,
   ])
   if (res.stop_reason === 'refusal') throw new Error('the model declined')
   if (res.stop_reason === 'max_tokens') throw new Error('the output was cut off')

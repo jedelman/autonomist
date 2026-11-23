@@ -85,8 +85,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   - Automated since 2026-11-23 (below): autonomist writes one a day as a record in its own repository.
 - **autonomist on Bluesky** (Jason, 2026-11-23: "Opt out for sources, starting with my follows. Cadence: one blog post a
   day, automatic. For Bluesky: like pinned post to opt in to unsolicited opinions. Autonomist posts problem posing
-  questions and engages with all replies."). `worker/bot/`, run by two crons (replies and the sweep every five
-  minutes; the journal, questions and opt-in hourly at :07); off unless `BOT_ENABLED`.
+  questions and engages with all replies."). `worker/bot/`, run by two crons (replies, discussions and the sweep
+  every five minutes; the journal, questions and opt-in hourly at :07); off unless `BOT_ENABLED`.
   - **Sources:** the links that accounts `BOT_SOURCE_ACTOR` follows share (`sources.js`), read only when robots.txt and
     Content-Signal allow (opt-out, as the research watch).
   - **The journal, daily and automatic** (`journal.js`): entries are `org.jason-edelman.autonomist.journal` records
@@ -98,8 +98,12 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     `BOT_QUESTION_HOURS_UTC`, one post: a sentence on what an article it read reports, and an open question about the
     reader's own place, with the article as a link card. `checkQuestion` holds the sentence to the journal's standard.
     The daily journal post also leads with the entry's question.
-  - **Replies** (`replies.js`): every reply and mention, in its thread. One answer per post; at most 8 a thread a day,
-    2 with self-labeled bots, `BOT_REPLIES_DAILY` in all; "skip" for spam or abuse.
+  - **Replies and discussions** (Jason, later the same day: "It's okay if autonomist weighs in on replies in its own
+    posts! It should let people discuss but say something when it has something to contribute!"). A mention gets an
+    answer (`replies.js`). Under its own posts, each new turn gets a judgment, join in or listen: direct replies via
+    notifications (`replies.js`), people talking with each other by reading its recent threads (`threads.js`, the
+    latest new turn per thread, `BOT_DISCUSS_PER_RUN`). One answer per post; at most 8 a thread a day, 2 with
+    self-labeled bots, `BOT_REPLIES_DAILY` in all; "skip" for spam or abuse.
   - **Opt-in** (`optin.js`): the accounts that like the pinned post may get a reply on their own posts, at most one a
     day each and `BOT_OPTIN_DAILY` in all. Unliking ends it at the next hourly refresh.
   - **Never:** follow, like, repost, DM, @-mention (no mention facets), or reply unasked to anyone who hasn't opted

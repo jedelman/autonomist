@@ -7,6 +7,7 @@ import { FRAMEWORK, frameworkSheet } from './framework.js'
 import { candidates } from './sources.js'
 import { graphemes, fits } from './text.js'
 import { obj } from './model.js'
+import { rememberRoot } from './threads.js'
 
 export const COLLECTION = 'org.jason-edelman.autonomist.journal'
 const PE = 'https://power-explained.jason-edelman.org'
@@ -195,5 +196,6 @@ export async function announce({ kv, api, day }) {
   }
   await kv.put(`journal:announce:${day}`, JSON.stringify({ ...a, claimed: true, post: post.uri }), { expirationTtl: 3 * 86400 })
   await kv.put(`journal:root:${post.uri}`, JSON.stringify({ slug: a.slug, title: a.title, summary: a.summary, question: a.question, url: a.url }), { expirationTtl: 60 * 86400 })
+  await rememberRoot(kv, post, 'journal')
   return { announced: post.uri }
 }

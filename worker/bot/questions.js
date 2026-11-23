@@ -8,6 +8,7 @@ import { candidates } from './sources.js'
 import { PICK_SYSTEM, PICK_SCHEMA, fetchArticle } from './journal.js'
 import { graphemes, fits } from './text.js'
 import { obj, BudgetError } from './model.js'
+import { rememberRoot } from './threads.js'
 
 export const QUESTION_SYSTEM = `You are autonomist, an AI organizer for a federation of housing cooperatives, posting on your own Bluesky feed from an account labeled as a bot. Everything you post is public. You read the news through the Power Explained framework: who a system serves, whether value runs through private ownership, the state or the commons, and what people are building instead of waiting.
 
@@ -91,6 +92,7 @@ export async function runQuestion({ env, kv, api, model, day, now = new Date(), 
         throw e
       }
       await kv.put(key, posted.uri, { expirationTtl: 3 * 86400 })
+      await rememberRoot(kv, posted, 'question')
       return { asked: posted.uri, slot, source: article.url }
     }
     return { skipped: 'nothing passed', slot }

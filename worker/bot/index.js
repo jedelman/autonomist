@@ -1,5 +1,5 @@
-// autonomist's life on Bluesky, run by two crons. Every five minutes: replies to every reply and mention, and a few of
-// Jason's follows read for links. Hourly (at :07): the follow list (daily), the opt-in sweep, the journal entry (daily,
+// autonomist's life on Bluesky, run by two crons. Every five minutes: mentions and replies, the discussions under its
+// own posts (join in or listen), and a few of Jason's follows read for links. Hourly (at :07): the follow list (daily), the opt-in sweep, the journal entry (daily,
 // from BOT_JOURNAL_HOUR_UTC) and a problem-posing question on its own feed (at each of BOT_QUESTION_HOURS_UTC). The
 // pinned opt-in post is made once, by whichever runs first.
 // Off unless BOT_ENABLED is "true". Each step logs one line of JSON and never stops the others.
@@ -10,6 +10,7 @@ import { runJournal } from './journal.js'
 import { runReplies } from './replies.js'
 import { ensurePinned, runOptin } from './optin.js'
 import { runQuestion } from './questions.js'
+import { runDiscussions } from './threads.js'
 import { setting } from '../limits.js'
 import firstEntry from '../../content/journal/2026-11-23-piketty-global-justice.md'
 import { frontMatter } from '../journal-core.js'
@@ -35,6 +36,7 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
   await step('pinned', () => ensurePinned({ kv, api }))
   if (fast) {
     await step('replies', () => runReplies({ env, kv, api, model, day, now }))
+    await step('discussions', () => runDiscussions({ env, kv, api, model, day, now }))
     await step('sweep', () => sweep(api, kv, setting(env.BOT_SWEEP_PER_TICK, 8, { min: 0, max: 40 }), now.getTime()))
   }
   if (hourly) {

@@ -438,3 +438,52 @@ test('review 13, 15: candidate metadata stays under 1,000 bytes in any script; h
   assert.equal(a.title, "Workers' co-op buys the mill")
   assert.equal(a.siteName, "The Mill's Paper")
 })
+
+test('discussions: under its own post, it weighs the latest turn between others, listens to the rest, leaves mentions alone', async () => {
+  const { runDiscussions, discussionTurns, rememberRoot } = await import('../worker/bot/threads.js')
+  const kv = memoryKV()
+  const me = 'did:plc:me'
+  const root = { uri: 'at://did:plc:me/app.bsky.feed.post/q1', cid: 'q1' }
+  await rememberRoot(kv, root, 'question')
+  const t = (min) => new Date(Date.now() - min * 60_000).toISOString()
+  const P = (id, did, handle, text, mins, extra = {}) => ({ uri: `at://${did}/app.bsky.feed.post/${id}`, cid: id, author: { did, handle }, indexedAt: t(mins), record: { text, ...extra } })
+  const thread = {
+    post: P('q1', me, 'autonomist', 'Who owns your building?', 60),
+    replies: [{
+      post: P('a1', 'did:plc:a', 'a.example', 'An LLC I cannot find.', 50),
+      replies: [
+        { post: P('b1', 'did:plc:b', 'b.example', 'Same here. Ours sold twice this year.', 40), replies: [{ post: P('a2', 'did:plc:a', 'a.example', 'How do you even find out who they are?', 10) }] },
+        { post: P('c1', 'did:plc:c', 'c.example', '@autonomist what do you think?', 5, { facets: [{ features: [{ $type: 'app.bsky.richtext.facet#mention', did: me }] }] }) },
+      ],
+    }],
+  }
+  const turns = discussionTurns(thread, me)
+  assert.deepEqual(turns.map((x) => x.post.cid), ['b1', 'a2'])
+  const api = fakeApi()
+  api.pub = async () => ({ thread })
+  let seenUser = ''
+  const model = { structured: async ({ user }) => { seenUser = user; return { data: { action: 'reply', text: 'Your city keeps a record of who owns each parcel. Has anyone looked yours up together?', why: '' } } } }
+  const r = await runDiscussions({ env: {}, kv, api, model, day: '2026-11-24' })
+  assert.equal(api.posts.length, 1)
+  assert.deepEqual(api.posts[0].reply, { root: { uri: root.uri, cid: 'q1' }, parent: { uri: 'at://did:plc:a/app.bsky.feed.post/a2', cid: 'a2' } })
+  assert.ok(seenUser.includes('How do you even find out who they are?'))
+  assert.equal(await kv.get('answered:at://did:plc:b/app.bsky.feed.post/b1'), 'listened')
+  assert.equal(await kv.get('answered:at://did:plc:c/app.bsky.feed.post/c1'), null)
+  // nothing new next time: no model call, no post
+  let calls = 0
+  await runDiscussions({ env: {}, kv, api, model: { structured: async () => { calls++; return { data: {} } } }, day: '2026-11-24' })
+  assert.equal(calls, 0)
+  assert.equal(api.posts.length, 1)
+  assert.equal(r.handled[0].joined, 'at://did:plc:me/app.bsky.feed.post/1')
+})
+
+test('replies: a direct reply that only answers its question can be listened to, with no post', async () => {
+  const kv = memoryKV()
+  await kv.put('bot:notif:seen', '2026-11-24T00:00:00.000Z')
+  const api = fakeApi({ notifications: [note(1, 'reply', human)] })
+  const model = { structured: async () => ({ data: { action: 'listen', text: '', why: 'they are answering, nothing to add' } }) }
+  const r = await runReplies({ env: {}, kv, api, model, day: '2026-11-24' })
+  assert.equal(api.posts.length, 0)
+  assert.equal(r.handled[0].listened, 'they are answering, nothing to add')
+  assert.equal(await kv.get('answered:at://did:plc:u/app.bsky.feed.post/1'), 'listened')
+})

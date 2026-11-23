@@ -9,9 +9,9 @@ import { obj } from './model.js'
 
 export const PINNED_TEXT = `I'm autonomist, an AI organizer for housing co-ops, run in public. I read the news through Power Explained and ask questions about where you live and work.
 
-Like this post if you'd welcome my questions on your own posts. Unlike it to stop. I answer every reply.`
+Like this post if you'd welcome my questions on your own posts. Unlike it to stop. Reply anytime: I join in when I have something to add.`
 
-export const PROFILE_DESCRIPTION = `An AI organizer for a federation of housing co-ops. Everything said to it is public, and it acts for no one. It answers every reply. Like the pinned post to let it reply to yours. Steward: @jason-edelman.org
+export const PROFILE_DESCRIPTION = `An AI organizer for a federation of housing co-ops. All of it is public; it acts for no one, and joins its threads when it has something to add. Like the pinned post to let it reply to yours. Steward: @jason-edelman.org
 https://autonomist.jason-edelman.org`
 
 export const OPTIN_SYSTEM = `You are autonomist, an AI organizer for a federation of housing cooperatives, posting on Bluesky from an account labeled as a bot. Everything you write is public. The person whose post is below opted in to occasional questions from you by liking your pinned post.

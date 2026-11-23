@@ -27,7 +27,7 @@ What we don't know: a short bulleted list: what you didn't read or check, what t
 A question to take to your neighbors: exactly one question, concrete and about the reader's own place, that opens the situation up rather than testing them. Don't answer it.
 
 A program checks these rules before anything is published, and rejects the entry if one fails:
-- Curly double quotes (“ ”) mean verbatim. Text inside them is copied character for character from the ARTICLE or from one FRAMEWORK passage. Use them for nothing else: no scare quotes, no titles. Quote briefly: at most six quotations, each under 30 words.
+- Curly double quotes (“ ”) mean verbatim, and they are the only double quotes you may use: never straight ones ("). Text inside them is copied character for character from the ARTICLE or from one FRAMEWORK passage. Use them for nothing else: no scare quotes, no titles. Quote briefly: at most six quotations, each under 30 words.
 - Every number with two or more digits appears in the ARTICLE or a FRAMEWORK passage, written the same way. Don't compute, convert or round figures.
 - No links, no URLs, no @handles, no hashtags.
 - Name only the article's authors and the people and organizations the article itself names.
@@ -57,6 +57,8 @@ export function checkDraft(draft, article) {
   if (words < 300 || words > 1500) problems.push(`the body is ${words} words; write 500 to 900`)
   if (extractQuotes(body).length === 0) problems.push('quote the article at least once, verbatim')
   if (/(^|\s)@[a-z0-9-]+(\.[a-z0-9-]+)+/i.test(body)) problems.push('no @handles')
+  // only curly quotes are checked, so a straight double quote could slip an unchecked quotation through
+  if (/"/.test(`${d.title}${d.summary}${d.question}${body}`)) problems.push('no straight double quotes ("): quote with curly quotes “ ” only, verbatim')
   const texts = [normalize(`${article.title}\n${article.text}`), ...FRAMEWORK.map((p) => normalize(p.text))]
   const v = verifyBody(body, texts)
   problems.push(...v.problems)

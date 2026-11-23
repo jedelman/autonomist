@@ -74,6 +74,7 @@ test('journal: a sound draft passes; invented quotes, figures, links, handles an
   assert.ok(handle.problems.includes('no @handles'))
   assert.ok(checkDraft({ ...draft(), body: '## What it says\n\nx' }, article).problems.some((p) => p.startsWith('missing section')))
   assert.ok(checkDraft(draft({ question: 'Not a question.' }), article).problems.some((p) => p.startsWith('the question')))
+  assert.ok(checkDraft(draft({ sections: { 'What it says': 'They said "tenants loved it". “We found out from the newspaper.”' } }), article).problems.some((p) => p.startsWith('no straight double quotes')))
 })
 
 function fakeApi({ notifications = [], threads = {}, likes = [], feeds = {} } = {}) {

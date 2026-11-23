@@ -2,9 +2,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { memoryKV } from './helpers.mjs'
-import { onPage, siteOf, citationsOf, verdictOf, factCheck, checkNote } from '../worker/bot/factcheck.js'
+import { onPage, siteOf, citationsOf, verdictOf, factCheck, checkNote, cleanClaim, sitesOf, searchesToday } from '../worker/bot/factcheck.js'
+import { runReplies } from '../worker/bot/replies.js'
+import { BudgetError } from '../worker/bot/model.js'
 import { decide, vetReply } from '../worker/bot/replies.js'
-import { claimsToCheck, checkClaims } from '../worker/bot/journal.js'
+import { claimsToCheck, checkClaims, publish } from '../worker/bot/journal.js'
 import { searchCall, SEARCH_USD } from '../worker/bot/model.js'
 import { checksHtml } from '../worker/checks-html.js'
 import { entryHtml } from '../worker/journal-pages.js'
@@ -66,11 +68,11 @@ test('factcheck: cited pages are fetched by its own code; closed, missing and un
   assert.deepEqual(c.sources.map((s) => s.site), ['gov.example', 'paper.example'])
   assert.equal(c.dropped, 3)
   assert.ok(!stanceInputs[0].includes('closed.example'))
-  assert.equal(await kv.get('bot:searches:d'), '2')
+  assert.equal(await searchesToday(kv, 'd'), 2)
   // the note offers only verified URLs
   assert.ok(checkNote(c).includes('https://gov.example/minutes') && !checkNote(c).includes('other.example'))
   // the day's searches are capped
-  await kv.put('bot:searches:d', '30')
+  await kv.put('bot:searches:d:x', '', { metadata: { n: 28 } })
   assert.equal(await factCheck({ env: {}, kv, model, day: 'd', claim: CLAIM, fetch: fetchFake }), null)
 })
 
@@ -158,4 +160,85 @@ test('live view: the /thinking/ CSP widens only connect-src, to exactly the Jets
   assert.deepEqual(b['connect-src'], ["'self'", ...JETSTREAM_HOSTS.map((h) => `wss://${h}`)])
   // it connects only on a click, builds no markup from records, and sets no inline style or handler attribute
   assert.ok(/addEventListener\('click'/.test(live) && !/innerHTML|insertAdjacentHTML|document\.write|\.style\.|setAttribute\('on/.test(live))
+})
+
+test('review: claims are cleaned; thread sites, redirects and own sites never count as independent', async () => {
+  assert.equal(cleanClaim("The council's vote was 7 to 2."), "The council's vote was 7 to 2.")
+  for (const bad of ['My landlord jsmith.bsky.social evicted us.', 'Ask @someone about it.', 'See https://x.example/a', 'It said “no”.', 'Example.org reports a 7 to 2 vote.', 'x'.repeat(301)]) assert.equal(cleanClaim(bad), null, bad)
+  assert.deepEqual(sitesOf([
+    { embed: { external: { uri: 'https://www.paper.example/story' } }, record: { text: 'read this' } },
+    { record: { text: 'and https://gov.example/minutes too', facets: [{ features: [{ $type: 'app.bsky.richtext.facet#link', uri: 'https://news.bbc.co.uk/x' }] }] } },
+  ]).sort(), ['bbc.co.uk', 'gov.example', 'paper.example'])
+  const kv = memoryKV()
+  const f = async (url) => {
+    const u = String(url)
+    if (u.endsWith('/robots.txt')) return new Response('', { status: 404 })
+    if (u === 'https://old-paper.example/story') return new Response('', { status: 301, headers: { location: 'https://paper.example/story' } })
+    if (u === 'https://mirror.example/a' || u === 'https://mirror2.example/a') return new Response('', { status: 301, headers: { location: 'https://gov.example/minutes' } })
+    return fetchFake(url)
+  }
+  const words = 'The council voted 7 to 2 to approve the sale of the Elm Street complex'
+  const model = {
+    search: search([cite('https://old-paper.example/story', words), cite('https://mirror.example/a', words), cite('https://mirror2.example/a', words), cite('https://jason-edelman.org/x', words)]),
+    structured: async () => ({ data: { stances: [{ index: 0, stance: 'supports' }, { index: 1, stance: 'supports' }] } }),
+  }
+  const c = await factCheck({ env: {}, kv, model, day: 'd', claim: CLAIM, exclude: ['paper.example'], fetch: f })
+  // old-paper redirects to the excluded outlet; two mirrors lead to one page; Jason's own site never counts
+  assert.deepEqual(c.sources.map((x) => x.url), ['https://gov.example/minutes'])
+  assert.equal(c.verdict, 'supported')
+  // a search call that fails midway still counts its reserved searches
+  const kv2 = memoryKV()
+  await assert.rejects(factCheck({ env: {}, kv: kv2, model: { search: async () => { throw new Error('the model declined') } }, day: 'd', claim: CLAIM, fetch: f }), /declined/)
+  assert.equal(await searchesToday(kv2, 'd'), 3)
+})
+
+const replyNotif = { uri: 'at://did:plc:u/app.bsky.feed.post/1', cid: 'c1', reason: 'mention', indexedAt: '2026-11-24T00:01:00.000Z', author: { did: 'did:plc:u', handle: 'u.example' }, record: { text: 'Is that right?' } }
+const repliesApi = (posts = []) => ({
+  posts, calls: [], logs: [],
+  session: async () => ({ did: 'did:plc:me' }),
+  call: async function (method, nsid, opts) {
+    this.calls.push({ nsid, opts })
+    if (nsid === 'app.bsky.notification.listNotifications') return { notifications: [replyNotif] }
+    if (nsid === 'com.atproto.repo.createRecord') { this.logs.push(opts.body.record); return { uri: 'at://did:plc:me/log/1' } }
+    return {}
+  },
+  pub: async () => ({ thread: { post: { author: { did: 'did:plc:u', handle: 'u.example' }, record: { text: 'Is that right?' } }, parent: { post: { author: { did: 'did:plc:me' }, record: { text: 'A question.' }, embed: { external: { uri: 'https://src.example/article' } } } } } }),
+  post: async function (p) { this.posts.push(p); return { uri: 'at://did:plc:me/app.bsky.feed.post/r' } },
+})
+
+test('review: a check that ran is logged even when nothing is posted; the thread\'s own sites are excluded', async () => {
+  const kv = memoryKV()
+  await kv.put('bot:notif:seen', '2026-11-24T00:00:00.000Z')
+  const api = repliesApi()
+  const answers = [{ action: 'reply', text: 'x', why: '', check: CLAIM, reflection: '', themes: [] }, { action: 'skip', text: '', why: 'nothing to add', check: '', reflection: '', themes: [] }]
+  const seenExclude = []
+  const model = {
+    search: async (o) => { seenExclude.push(o.user); return { content: [], searches: 1 } },
+    structured: async () => ({ data: answers.shift() }),
+  }
+  await runReplies({ env: {}, kv, api, model, day: '2026-11-24' })
+  assert.equal(api.posts.length, 0)
+  assert.ok(seenExclude[0].includes('src.example'))
+  const log = api.logs.find((r) => r.kind === 'checked')
+  assert.equal(log.checks[0].verdict, 'unverified')
+})
+
+test('review: out of budget, a reply is deferred: the claim is let go and the cursor stays', async () => {
+  const kv = memoryKV()
+  await kv.put('bot:notif:seen', '2026-11-24T00:00:00.000Z')
+  const api = repliesApi()
+  const model = { structured: async () => { throw new BudgetError('bot budget reached') } }
+  const r = await runReplies({ env: {}, kv, api, model, day: '2026-11-24' })
+  assert.equal(r.handled[0].deferred, 'bot budget reached')
+  assert.equal(await kv.get(`answered:${replyNotif.uri}`), null)
+  assert.equal(await kv.get('bot:notif:seen'), '2026-11-24T00:00:00.000Z')
+})
+
+test('review: every page quoted on an entry page, the checks included, is in its sources', async () => {
+  const puts = []
+  const api = { session: async () => ({ did: 'did:plc:me' }), call: async (m, nsid, o) => { puts.push(o.body.record) } }
+  const claims = [{ claim: CLAIM, verdict: 'supported', sources: [{ url: 'https://gov.example/minutes', quote: 'q', stance: 'supports' }] }]
+  await publish({ env: {}, kv: memoryKV(), api, day: '2026-11-24', article: { url: 'https://src.example/article', siteName: 'S', title: 'T', authors: [] }, cand: {}, draft: { title: 'T', summary: 's', question: 'q?', body: 'b' }, check: { quotes: 1, figures: 0, frameworkUrls: ['https://power-explained.jason-edelman.org/x/'], claims } })
+  assert.deepEqual(puts[0].sources, ['https://src.example/article', 'https://power-explained.jason-edelman.org/x/', 'https://gov.example/minutes'])
+  assert.equal(puts[0].checks.claims[0].verdict, 'supported')
 })

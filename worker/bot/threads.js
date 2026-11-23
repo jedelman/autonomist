@@ -6,6 +6,8 @@
 // posts are left to replies.js.
 import { setting } from '../limits.js'
 import { decide, checkForLog, claim, bump, isBot, threadKeyFor } from './replies.js'
+import { sitesOf } from './factcheck.js'
+import { BudgetError } from './model.js'
 import { writeLog, memoryNote } from './log.js'
 
 const DAY = 86400_000
@@ -70,11 +72,22 @@ export async function runDiscussions({ env, kv, api, model, day, now = new Date(
       const note = journal ? `\n\nThe thread starts from your journal entry "${journal.title}" (${journal.url}). Its summary: ${journal.summary} Its question: ${journal.question}` : ''
       const earlier = fresh.slice(0, -1).map((f) => lineOf(f.post, me))
       const user = `THREAD under your own post, from your post down to the latest turn (oldest first)\n${latest.path.map((p) => lineOf(p, me)).join('\n')}${earlier.length ? `\n\nOther new turns elsewhere in the thread:\n${earlier.join('\n')}` : ''}${note}${mem}\n\nPeople are talking with each other here, not to you. Join in only if you have something to contribute; otherwise listen.`
-      const { out: v, data, check } = await decide({ env, kv, model, day, user })
+      const exclude = [...sitesOf([...latest.path, ...fresh.map((f) => f.post)]), ...(journal?.source ? sitesOf([{ record: { text: journal.source } }]) : [])]
+      let decided
+      try {
+        decided = await decide({ env, kv, model, day, user, exclude })
+      } catch (e) {
+        // out of budget: let the claim go, so this turn is weighed again once there's budget
+        if (e instanceof BudgetError) { await kv.delete(`answered:${latest.post.uri}`).catch(() => {}); done.push({ root: root.uri, deferred: e.message }); break }
+        throw e
+      }
+      const { out: v, data, check } = decided
       if (!v || v.pass) {
         await kv.put(`answered:${latest.post.uri}`, v?.pass === 'skip' ? 'skip' : v?.pass === 'listen' ? 'listened' : 'refused', { expirationTtl: 30 * 86400 })
         done.push({ root: root.uri, listened: latest.post.uri })
         if (v?.pass === 'listen') await writeLog(api, { kind: 'listened', context: 'discussion', subject: { uri: latest.post.uri, cid: latest.post.cid }, reflection: data?.reflection, themes: data?.themes, checks: checkForLog(check) })
+        // a check that ran is public even when nothing was posted
+        else if (check) await writeLog(api, { kind: 'checked', context: 'discussion', subject: { uri: latest.post.uri, cid: latest.post.cid }, checks: checkForLog(check) })
         continue
       }
       const parent = { uri: latest.post.uri, cid: latest.post.cid }

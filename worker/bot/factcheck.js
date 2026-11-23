@@ -8,7 +8,7 @@
 // 3. A separate structured call says whether each kept excerpt supports, contradicts or doesn't settle the claim.
 // 4. Code gives the verdict: confirmed (two independent sites support it, none contradicts), supported (one),
 //    disputed (any verified contradiction), unsettled (verified sources, none decisive), unverified (none kept).
-import { fetchReadable, htmlToText, normalize } from '../journal-core.js'
+import { fetchReadable, htmlToText, normalize, hasControlChars } from '../journal-core.js'
 import { setting } from '../limits.js'
 import { obj } from './model.js'
 
@@ -25,6 +25,33 @@ export function siteOf(url) {
     const n = parts.length >= 3 && parts[parts.length - 1].length === 2 && TWO_PART.has(parts[parts.length - 2]) ? 3 : 2
     return parts.slice(-n).join('.')
   } catch { return '' }
+}
+
+// Never independent evidence: autonomist's own sites and its steward's, and Bluesky itself.
+export const NEVER_SOURCES = ['jason-edelman.org', 'bsky.app']
+
+/**
+ * A claim fit to search for and to publish in the run journal, or null. No handles (with or without the @), links,
+ * quotation marks or control characters, and short. Claims about private people are kept out by the prompts; code
+ * can't recognize a name.
+ */
+export function cleanClaim(claim) {
+  const c = String(claim || '').trim().replace(/\s+/g, ' ')
+  if (!c || c.length > 300) return null
+  if (/@|https?:\/\/|www\./i.test(c) || /\b[a-z0-9-]{2,}(\.[a-z0-9-]+)*\.[a-z]{2,}\b/i.test(c)) return null
+  if (/["“”‘’«»„＂]/.test(c.replace(/(\w)['’](\w)/g, '$1$2')) || hasControlChars(c)) return null
+  return c
+}
+
+/** The sites a set of Bluesky posts link to (embeds, link facets, URLs in the text): where a claim came from. */
+export function sitesOf(posts) {
+  const urls = []
+  for (const p of posts || []) {
+    urls.push(p?.embed?.external?.uri, p?.record?.embed?.external?.uri, p?.embed?.media?.external?.uri)
+    for (const f of p?.record?.facets || []) for (const x of f.features || []) if (x.uri) urls.push(x.uri)
+    urls.push(...(String(p?.record?.text || '').match(/https?:\/\/[^\s<>"]+/g) || []))
+  }
+  return [...new Set(urls.filter((u) => typeof u === 'string' && /^https?:\/\//.test(u)).map(siteOf).filter(Boolean))]
 }
 
 /** The sources the search answer cited: one per URL, with the text cited from it. */
@@ -73,28 +100,47 @@ export function verdictOf(sources) {
  * Returns { claim, verdict, sources: [{ url, title, site, quote, stance }], dropped, searches } or null when the
  * day's searches are used up.
  */
+/** Searches used today: one KV key per search call, so overlapping runs never lose a count. */
+export async function searchesToday(kv, day) {
+  let n = 0, cursor
+  do {
+    const page = await kv.list({ prefix: `bot:searches:${day}:`, cursor })
+    for (const k of page.keys) n += Number(k.metadata?.n || 0)
+    cursor = page.list_complete ? undefined : page.cursor
+  } while (cursor)
+  return n
+}
+
 export async function factCheck({ env, kv, model, day, claim, exclude = [], fetch: f = fetch }) {
-  const cap = setting(env.BOT_SEARCHES_DAILY, 30, { min: 0 })
-  const used = Number((await kv.get(`bot:searches:${day}`)) || 0)
-  if (used >= cap) return null
-  const text = String(claim).replace(/(^|\s)@[a-z0-9.-]+/gi, '$1').trim().slice(0, 400)
+  const text = cleanClaim(claim)
   if (!text) return null
+  const cap = setting(env.BOT_SEARCHES_DAILY, 30, { min: 0 })
+  const used = await searchesToday(kv, day)
+  if (used >= cap) return null
   const per = Math.min(3, cap - used)
-  const { content, searches } = await model.search({ system: SEARCH_SYSTEM, user: `CLAIM\n${text}${exclude.length ? `\n\nDon't count these sites, where the claim came from: ${exclude.join(', ')}` : ''}`, maxUses: per })
-  await kv.put(`bot:searches:${day}`, String(used + searches), { expirationTtl: 3 * 86400 })
-  const cited = citationsOf(content).filter((c) => !exclude.includes(siteOf(c.url))).slice(0, 6)
-  // the pages are read in parallel, so a check takes about as long as its slowest page (fetchReadable times out)
+  const skip = [...new Set([...NEVER_SOURCES, ...exclude.filter(Boolean)])]
+  // the searches are reserved before the call and corrected after it, so a call that fails midway still counts
+  const key = `bot:searches:${day}:${crypto.randomUUID()}`
+  await kv.put(key, '', { metadata: { n: per }, expirationTtl: 3 * 86400 })
+  const { content, searches } = await model.search({ system: SEARCH_SYSTEM, user: `CLAIM\n${text}\n\nDon't count these sites, where the claim came from or which aren't independent: ${skip.join(', ')}`, maxUses: per })
+  await kv.put(key, '', { metadata: { n: searches }, expirationTtl: 3 * 86400 })
+  const cited = citationsOf(content).filter((c) => !skip.includes(siteOf(c.url))).slice(0, 6)
+  // the pages are read in parallel, so a check takes about as long as its slowest page (fetchReadable times out).
+  // A source is the page actually read, after redirects: its site decides independence and exclusion.
   const robots = new Map()
   const read = await Promise.all(cited.map(async (c) => {
     try {
-      const { res } = await fetchReadable(c.url, { fetch: f, cache: robots })
+      const { res, url: at } = await fetchReadable(c.url, { fetch: f, cache: robots })
+      const site = siteOf(at)
+      if (!site || skip.includes(site)) return null
       if (!res.ok || !/html|text\/plain/i.test(res.headers.get('content-type') || '')) return null
       const page = normalize(htmlToText((await res.text()).slice(0, 3_000_000)))
       const quote = c.quotes.map((q) => onPage(q, page)).find(Boolean)
-      return quote ? { url: c.url, title: c.title.slice(0, 200), site: siteOf(c.url), quote: quote.slice(0, 600) } : null
+      return quote ? { url: at, title: c.title.slice(0, 200), site, quote: quote.slice(0, 600) } : null
     } catch { return null /* closed, unreachable or not a page: it doesn't count */ }
   }))
-  const kept = read.filter(Boolean)
+  // one source per page, even when two cited URLs led to it
+  const kept = [...new Map(read.filter(Boolean).map((k) => [k.url, k])).values()]
   if (kept.length) {
     const { data } = await model.structured({ system: STANCE_SYSTEM, user: `CLAIM\n${text}\n\n${kept.map((k, i) => `${i}. (${k.site}) ${k.quote}`).join('\n\n')}`, schema: STANCE_SCHEMA, effort: 'low', maxTokens: 2000 })
     for (const s of data.stances || []) if (kept[s.index]) kept[s.index].stance = s.stance

@@ -16,6 +16,7 @@ const KIND = {
   asked: { feed: 'Asked on its feed' },
   journaled: { journal: 'Wrote the journal' },
   answered: { chat: 'Answered in the chat' },
+  checked: { mention: 'Checked a claim, then held back', reply: 'Checked a claim, then held back', discussion: 'Checked a claim, then held back' },
 }
 
 export const labelOf = (v) => KIND[v.kind]?.[v.context] || `${v.kind || 'note'}${v.context ? ` (${v.context})` : ''}`

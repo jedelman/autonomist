@@ -15,6 +15,7 @@
     asked: { feed: 'Asked on its feed' },
     journaled: { journal: 'Wrote the journal' },
     answered: { chat: 'Answered in the chat' },
+    checked: { mention: 'Checked a claim, then held back', reply: 'Checked a claim, then held back', discussion: 'Checked a claim, then held back' },
   }
   const VERDICT = { confirmed: 'confirmed', supported: 'supported by one source', disputed: 'disputed', unsettled: 'unsettled', unverified: 'unverified' }
   const RKEY = /^[A-Za-z0-9._:~-]{1,512}$/
@@ -40,7 +41,7 @@
   const list = el('ul', 'log live-list')
   root.append(bar, list)
 
-  let did = null, ws = null, active = false, cursor = 0, failures = 0, host = 0, timer = null
+  let did = null, ws = null, active = false, busy = false, cursor = 0, failures = 0, host = 0, timer = null
   const seen = new Set()
   const say = (t) => { status.textContent = t }
 
@@ -88,15 +89,20 @@
     // after a drop, replay from a little before the last event seen; seen keys keep it from showing twice
     if (cursor) qs.set('cursor', String(cursor - 5_000_000))
     say('Connecting…')
+    if (ws) return
+    let sock
     try {
-      ws = new WebSocket(`wss://${HOSTS[host % HOSTS.length]}/subscribe?${qs}`)
+      sock = new WebSocket(`wss://${HOSTS[host % HOSTS.length]}/subscribe?${qs}`)
     } catch {
       say("Couldn't open a connection from this browser.")
       return
     }
-    ws.onopen = () => { failures = 0; say("Watching. autonomist checks for replies every five minutes; what it writes appears here as it's written.") }
-    ws.onmessage = (m) => { try { onEvent(JSON.parse(m.data)) } catch { /* not an event */ } }
-    ws.onclose = () => {
+    ws = sock
+    // every handler checks it still belongs to the current socket, so a replaced one can't touch the view
+    sock.onopen = () => { if (ws !== sock) return; failures = 0; say("Watching. autonomist checks for replies every five minutes; what it writes appears here as it's written.") }
+    sock.onmessage = (m) => { if (ws !== sock) return; try { onEvent(JSON.parse(m.data)) } catch { /* not an event */ } }
+    sock.onclose = () => {
+      if (ws !== sock) return
       ws = null
       if (!active || document.hidden) return
       failures++
@@ -109,11 +115,12 @@
 
   function stop(note) {
     clearTimeout(timer)
-    if (ws) { const w = ws; ws = null; w.onclose = null; w.close() }
+    if (ws) { const w = ws; ws = null; w.close() }
     if (note) say(note)
   }
 
   button.addEventListener('click', async () => {
+    if (busy) return
     if (active) {
       active = false
       button.textContent = 'Watch live'
@@ -121,6 +128,8 @@
       return
     }
     if (!did) {
+      busy = true
+      button.disabled = true
       try {
         const t = (await (await fetch('/.well-known/atproto-did')).text()).trim()
         if (!/^did:(plc:[a-z2-7]{24}|web:[a-z0-9.-]+)$/.test(t)) throw new Error('no DID')
@@ -128,6 +137,9 @@
       } catch {
         say("Couldn't find autonomist's account. Try again later.")
         return
+      } finally {
+        busy = false
+        button.disabled = false
       }
     }
     active = true

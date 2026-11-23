@@ -208,7 +208,8 @@ export async function publish({ env, kv, api, day, article, cand, draft, check }
     headline: article.title,
     authors: article.authors,
     published: article.published || undefined,
-    sources: [article.url, ...check.frameworkUrls],
+    // every page quoted on the entry page, the fact-checks' included
+    sources: [...new Set([article.url, ...check.frameworkUrls, ...(check.claims || []).flatMap((c) => c.sources.map((x) => x.url))])],
     via: cand.post ? { handle: cand.handle, post: cand.post } : undefined,
     checks: { quotes: check.quotes, figures: check.figures, ...(check.claims?.length ? { claims: check.claims } : {}), at: new Date().toISOString() },
     model: env.MODEL || 'claude-haiku-5-5',
@@ -217,7 +218,7 @@ export async function publish({ env, kv, api, day, article, cand, draft, check }
   await api.call('POST', 'com.atproto.repo.putRecord', { body: { repo: s.did, collection: COLLECTION, rkey: slug, record: JSON.parse(JSON.stringify(record)) } })
   const url = `${(env.PUBLIC_ORIGIN || 'https://autonomist.jason-edelman.org').replace(/\/$/, '')}/journal/${slug}/`
   await kv.put(`journal:done:${day}`, slug, { expirationTtl: 3 * 86400 })
-  await kv.put(`journal:announce:${day}`, JSON.stringify({ slug, url, title: draft.title, summary: draft.summary, question: draft.question }), { expirationTtl: 3 * 86400 })
+  await kv.put(`journal:announce:${day}`, JSON.stringify({ slug, url, title: draft.title, summary: draft.summary, question: draft.question, source: article.url }), { expirationTtl: 3 * 86400 })
   return { slug, url }
 }
 
@@ -237,7 +238,7 @@ export async function announce({ kv, api, day }) {
     throw e
   }
   await kv.put(`journal:announce:${day}`, JSON.stringify({ ...a, claimed: true, post: post.uri }), { expirationTtl: 3 * 86400 })
-  await kv.put(`journal:root:${post.uri}`, JSON.stringify({ slug: a.slug, title: a.title, summary: a.summary, question: a.question, url: a.url }), { expirationTtl: 60 * 86400 })
+  await kv.put(`journal:root:${post.uri}`, JSON.stringify({ slug: a.slug, title: a.title, summary: a.summary, question: a.question, url: a.url, source: a.source }), { expirationTtl: 60 * 86400 })
   await rememberRoot(kv, post, 'journal')
   return { announced: post.uri }
 }

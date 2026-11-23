@@ -122,13 +122,17 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     held to the article's figures by `claimsToCheck`). A search call (Anthropic's web search tool, never its fetch
     tool) returns cited sources; autonomist's own code then fetches every cited page through `fetchReadable` and
     keeps a source only if the cited words are on it (`onPage` keeps only the span it verified). Search results alone
-    count for nothing, and the claim's own outlet never counts. A separate call labels each kept excerpt supports,
+    count for nothing. A source's site is the page actually read, after redirects. Never counted: the sites the thread
+    or the article links to (`sitesOf`), autonomist's and Jason's own sites, and Bluesky (`NEVER_SOURCES`). Claims are
+    about public matters only, never a private person (the prompt), and `cleanClaim` refuses handles, links and quote
+    marks before anything is searched or published. A separate call labels each kept excerpt supports,
     contradicts or unclear, and code gives the verdict: confirmed (two independent sites), supported (one), disputed
     (any contradiction), unsettled, unverified. Replies may link one source their check verified, and no other
-    outside link. Every check is logged in the run journal (`checks`), and the journal's are published under the
-    entry ("Checked against other sources"). A check that fails leaves the reply or entry unchecked, never unsent or
-    unpublished. Capped at `BOT_SEARCHES_DAILY` searches a day (0 turns search off), each priced at `SEARCH_USD`, and
-    `BOT_CHECKS_PER_RUN` checks per cron run.
+    outside link. Every check is logged in the run journal (`checks`; kind `checked` when nothing was posted), and the
+    journal's are published under the entry ("Checked against other sources", their pages added to `sources`). A
+    check that fails leaves the reply or entry unchecked, never unsent or unpublished; when the budget runs out, a
+    reply or discussion turn is let go (claim released, cursor kept) and answered once there's budget again. Capped at `BOT_SEARCHES_DAILY` searches a day (0 turns search off), each priced at `SEARCH_USD`, and
+    `BOT_CHECKS_PER_RUN` checks per cron run; searches are reserved in KV before each call (one key per call).
   - **Watching live** (Jason, 2026-11-23: "I wonder if we could even use Jetstream to watch it in realtime").
     `/thinking/` has a live view (`site/js/live.js`): on a click, the visitor's browser opens a WebSocket to Bluesky's
     public Jetstream, filtered to autonomist's DID and its collections, and renders each new record with

@@ -21,14 +21,19 @@ export function entryHtml(rec, { uri, origin }) {
   return `<h1>${esc(rec.title)}</h1>
 <p class="byline">autonomist's journal · ${esc(rec.date)} · on ${source}${rec.outlet ? ` (${esc(rec.outlet)})` : ''}${by}${via}</p>
 ${render(clean(rec.body), { allowLink })}
-${checkedHtml(rec.checks?.claims)}<p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the article and the Power Explained pages it cites (${Number(rec.checks?.quotes || 0)} quotations, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
+${checkedHtml(rec.checks?.claims, rec.checks)}<p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the article and the Power Explained pages it cites (${Number(rec.checks?.quotes || 0)} quotations, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
 }
 
-function checkedHtml(claims) {
+function checkedHtml(claims, checks = {}) {
   const html = checksHtml(claims)
+  const VERDICT = { confirmed: 'confirmed', supported: 'supported by one source', disputed: 'disputed', unsettled: 'unsettled', unverified: 'unverified' }
+  const before = Array.isArray(checks.superseded) && checks.superseded.length && checks.rechecked
+    ? `<p class="muted">Rechecked on ${esc(String(checks.rechecked).slice(0, 10))}, after a fix to how autonomist judges sources. The first check said: ${checks.superseded.map((c) => `${esc(c.claim)} (${esc(VERDICT[c.verdict] || 'unknown')})`).join('; ')}.</p>
+`
+    : ''
   return html ? `<h2>Checked against other sources</h2>
-<p class="muted">After writing the entry, autonomist searched the web for other sources on claims the article makes. A source counts only if autonomist's own code fetched the page, where its publisher allows that, and found the cited words on it. The article's own site doesn't count, and a claim is confirmed only when two independent sites support it.</p>
-${html}
+<p class="muted">After writing the entry, autonomist searched the web for other sources on claims the article makes. A source counts only if autonomist's own code fetched the page, where its publisher allows that, and found the cited words on it. The article's own site doesn't count, nor a page that repeats the article word for word, and a claim is confirmed only when two independent sites support it.</p>
+${before}${html}
 ` : ''
 }
 

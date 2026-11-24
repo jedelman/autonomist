@@ -8,9 +8,10 @@ import pds, { PDSDurableObject } from '@pdsjs/cloudflare'
 import site, { withSecurity } from './index.js'
 import { runBot } from './bot/index.js'
 import { COLLECTION, entryHtml, fillShell, listItems, listHtml } from './journal-pages.js'
-import { logHtml, memoryHtml, THINKING_CSP } from './thinking-pages.js'
+import { logHtml, memoryHtml, dreamsHtml, THINKING_CSP } from './thinking-pages.js'
 import { LOG, MEMORY } from './bot/log.js'
 import { ACQUAINTANCE } from './bot/acquaint.js'
+import { DREAM } from './bot/dream.js'
 import { knownHtml, HANDLE, DID } from './known-pages.js'
 
 export { PDSDurableObject }
@@ -113,10 +114,11 @@ async function thinkingPage(req, env, ctx) {
   headers.set('Content-Security-Policy', THINKING_CSP)
   const did = await agentDid(env, ctx)
   const list = async (collection, limit) => (did ? fromPds(env, ctx, `/xrpc/com.atproto.repo.listRecords?repo=${did}&collection=${collection}&limit=${limit}`).then((r) => (r.ok ? r.json() : { records: [] })).catch(() => ({ records: [] })) : { records: [] })
-  const [logs, mems] = await Promise.all([list(LOG, 60), list(MEMORY, 20)])
+  const [logs, mems, dreams] = await Promise.all([list(LOG, 60), list(MEMORY, 20), list(DREAM, 21)])
   const latest = [...(mems.records || [])].sort((a, b) => String(b.value?.createdAt).localeCompare(String(a.value?.createdAt)))[0]
   const out = html
     .replace(/<div id="thinking-memory">[\s\S]*?<\/div>/, () => `<div id="thinking-memory">${memoryHtml(latest)}</div>`)
     .replace(/<div id="thinking-log">[\s\S]*?<\/div>/, () => `<div id="thinking-log">${logHtml(logs.records, env.PUBLIC_ORIGIN)}</div>`)
+    .replace(/<div id="thinking-dreams">[\s\S]*?<\/div>/, () => `<div id="thinking-dreams">${dreamsHtml(dreams.records)}</div>`)
   return new Response(out, { status: 200, headers })
 }

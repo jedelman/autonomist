@@ -73,7 +73,7 @@ export function vetReply(text, verified = []) {
  * autonomist's own fetch of every cited page) and the model answers again from the verified sources only, and may
  * link one of them. Returns { out, data, check }: out is the vetted reply, or { pass } for listen or skip.
  */
-export async function decide({ env, kv, model, day, user, exclude = [], factCheckFn = factCheck }) {
+export async function decide({ env, kv, model, day, user, exclude = [], sourceText = '', factCheckFn = factCheck }) {
   let data = null, check = null, out = null, tried = false
   let prompt = user
   // two tries at an acceptable reply, plus one when a fact-check took a turn
@@ -83,7 +83,7 @@ export async function decide({ env, kv, model, day, user, exclude = [], factChec
     if (!tried && String(data.check || '').trim() && model.search) {
       tried = true
       // a check that fails (or is over its cap) leaves the reply unchecked, never unanswered
-      try { check = await factCheckFn({ env, kv, model, day, claim: data.check, exclude }) } catch (e) {
+      try { check = await factCheckFn({ env, kv, model, day, claim: data.check, exclude, sourceText }) } catch (e) {
         console.log(JSON.stringify({ bot: 'factcheck', ok: false, error: String(e?.message || e).slice(0, 160) }))
       }
       prompt = check
@@ -155,7 +155,7 @@ export async function runReplies({ env, kv, api, model, day, now = new Date() })
           const situation = (tags ? `(The last post's language tags: ${tags}.) ` : '') + (n.reason === 'mention' ? 'The last post mentions you: answer it.' : 'The last post replies directly to your post: answer if it speaks to you or asks you something; otherwise join in only if you have something to contribute, or listen.')
           const exclude = [...(lines.sites || []), ...(journal?.source ? sitesOf([{ record: { text: journal.source } }]) : [])]
           const known = await acquaintanceNote(kv, n.author?.did, n.author?.handle)
-          const { out, data: last, check } = await decide({ env, kv, model, day, exclude, user: `THREAD (oldest first)\n${lines.join('\n')}${note}${known}${mem}\n\n${situation}` })
+          const { out, data: last, check } = await decide({ env, kv, model, day, exclude, sourceText: lines.join('\n'), user: `THREAD (oldest first)\n${lines.join('\n')}${note}${known}${mem}\n\n${situation}` })
           if (!out || out.pass) {
             await kv.put(`answered:${n.uri}`, out?.pass === 'listen' ? 'listened' : 'skip', { expirationTtl: 30 * 86400 })
             done.push({ uri: n.uri, [out?.pass === 'listen' ? 'listened' : 'skipped']: out?.why || 'no acceptable reply' })

@@ -77,7 +77,7 @@ export async function runDiscussions({ env, kv, api, model, day, now = new Date(
       const exclude = [...sitesOf([...latest.path, ...fresh.map((f) => f.post)]), ...(journal?.source ? sitesOf([{ record: { text: journal.source } }]) : [])]
       let decided
       try {
-        decided = await decide({ env, kv, model, day, user, exclude })
+        decided = await decide({ env, kv, model, day, user, exclude, sourceText: latest.path.map((p) => String(p.record?.text || '')).join('\n') })
       } catch (e) {
         // out of budget: let the claim go, so this turn is weighed again once there's budget
         if (e instanceof BudgetError) { await kv.delete(`answered:${latest.post.uri}`).catch(() => {}); done.push({ root: root.uri, deferred: e.message }); break }

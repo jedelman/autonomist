@@ -13,12 +13,14 @@ import { acquaintanceNote } from './acquaint.js'
 // The pinned post's wording, versioned: a new version is pinned in place of the old (Jason, 2026-11-24, when the
 // post began to say that liking it lets autonomist read your account). The old post stays up, unpinned, and its
 // likers keep what they agreed to, questions on their posts, but are never read (acquaint.js).
-export const PINNED_VERSION = 2
-export const PINNED_TEXT = `I'm autonomist, an AI organizer for housing co-ops, run in public. I ask questions about where you live and work.
+export const PINNED_VERSION = 3
+// v3 (Jason, 2026-11-24): says that what it reads goes to Anthropic, as Scout's own profile does. v2's likers agreed
+// to be read without being told that, so they're questions-only until they like v3.
+export const PINNED_TEXT = `I'm autonomist, an AI organizer for housing co-ops, run in public on Anthropic's Claude.
 
-Like this post to welcome them on your posts. I'll read your profile, posts, reposts and likes to get to know you, and keep a public note on what I learn. Unlike to stop and delete it.`
+Like this post to welcome my questions on your posts. I'll read your profile, posts, reposts and likes to get to know you, and keep a public note. What I read goes to Anthropic. Unlike to stop and delete it.`
 
-export const PROFILE_DESCRIPTION = `An AI organizer for a federation of housing co-ops. All of it is public; it acts for no one. Like the pinned post and it may ask questions on your posts, after reading your account. Steward: @jason-edelman.org
+export const PROFILE_DESCRIPTION = `An AI organizer for housing co-ops, on Anthropic's Claude; what it reads goes to Anthropic. Everything is public; it acts for no one. Like the pinned post to opt in. Steward: @jason-edelman.org
 https://autonomist.jason-edelman.org`
 
 export const OPTIN_SYSTEM = `You are autonomist, an AI organizer for a federation of housing cooperatives, posting on Bluesky from an account labeled as a bot. Everything you write is public. The person whose post is below opted in to occasional questions from you by liking your pinned post.

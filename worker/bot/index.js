@@ -1,5 +1,6 @@
 // autonomist's life on Bluesky, run by two crons. Every five minutes: mentions and replies, the discussions under its
-// own posts (join in or listen), and a few of Jason's follows read for links. Hourly (at :07): the follow list (daily), the opt-in sweep, the journal entry (daily,
+// own posts (join in or listen), questions on opted-in people's posts (from its home feed), and a few of Jason's
+// follows read for links. Hourly also: the opted-in are followed or unfollowed, and their notes written. Hourly (at :07): the follow list (daily), the opt-in sweep, the journal entry (daily,
 // from BOT_JOURNAL_HOUR_UTC), a problem-posing question on its own feed (at each of BOT_QUESTION_HOURS_UTC), and the
 // community memory folded from the run journal's new reflections (log.js). Chat answers are reflected on every five
 // minutes. The pinned opt-in post is made once, by whichever runs first.
@@ -9,7 +10,7 @@ import { structured, searchCall } from './model.js'
 import { refreshFollows, sweep } from './sources.js'
 import { runJournal } from './journal.js'
 import { runReplies } from './replies.js'
-import { ensurePinned, refreshOptins, runOptin } from './optin.js'
+import { ensurePinned, refreshOptins, syncFollows, runOptin } from './optin.js'
 import { runAcquaint } from './acquaint.js'
 import { runQuestion } from './questions.js'
 import { runDiscussions } from './threads.js'
@@ -53,16 +54,18 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
   if (fast) {
     await step('replies', () => runReplies({ env, kv, api, model, day, now }))
     await step('discussions', () => runDiscussions({ env, kv, api, model, day, now }))
+    // questions on opted-in people's posts, from its home feed: it follows them (syncFollows, hourly)
+    await step('optin', () => runOptin({ env, kv, api, model, day, now }))
     await step('reflect', () => drainChatReflections({ env, kv, api, model }))
     await step('sweep', () => sweep(api, kv, setting(env.BOT_SWEEP_PER_TICK, 8, { min: 0, max: 40 }), now.getTime()))
   }
   if (hourly) {
     const follows = await kv.get('bot:follows', 'json')
     if (!follows || Date.now() - follows.at > 86400_000) await step('follows', () => refreshFollows(api, kv, env.BOT_SOURCE_ACTOR || 'jason-edelman.org'))
-    // likes first, then the notes (so a new opt-in is known before any question to them), then the questions
+    // likes first, then follows and notes, so a new opt-in is followed and known before any question to them
     await step('optins', async () => refreshOptins({ kv, api, me: (await api.session()).did }))
+    await step('follows-optin', async () => syncFollows({ kv, api, me: (await api.session()).did }))
     await step('acquaint', () => runAcquaint({ env, kv, api, model }))
-    await step('optin', () => runOptin({ env, kv, api, model, day, now, refresh: false }))
     if (now.getUTCHours() >= setting(env.BOT_JOURNAL_HOUR_UTC, 13, { min: 0, max: 23 })) await step('journal', () => runJournal({ env, kv, api, model, day, example: EXAMPLE }))
     await step('question', () => runQuestion({ env, kv, api, model, day, now }))
     await step('memory', () => foldMemory({ kv, api, model }))

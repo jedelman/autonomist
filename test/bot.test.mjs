@@ -6,7 +6,7 @@ import { graphemes, bytes, fits, linkFacets } from '../worker/bot/text.js'
 import { normalizeUrl, linksFromItem, sweep, candidates } from '../worker/bot/sources.js'
 import { checkDraft, runJournal, COLLECTION } from '../worker/bot/journal.js'
 import { runReplies, vetReply } from '../worker/bot/replies.js'
-import { ensurePinned, runOptin, PINNED_TEXT, PROFILE_DESCRIPTION } from '../worker/bot/optin.js'
+import { ensurePinned, runOptin, refreshOptins, PINNED_TEXT, PROFILE_DESCRIPTION } from '../worker/bot/optin.js'
 import { checkQuestion, dueSlot, runQuestion } from '../worker/bot/questions.js'
 import { fetchReadable, numberIn, normalize, readArticle } from '../worker/journal-core.js'
 import { candidateMetadata } from '../worker/bot/sources.js'
@@ -198,8 +198,10 @@ test('opt-in: the pinned post is made once, pinned, and described; likers get at
   assert.equal(prof.displayName, 'autonomist')
   assert.deepEqual(await ensurePinned({ kv, api }), { pinned: 'known' })
   const model = { structured: async () => ({ data: { action: 'reply', text: 'Who else in your building got that notice?', why: '' } }) }
+  assert.equal((await refreshOptins({ kv, api, me: 'did:plc:me' })).optedIn, 2)
+  // no home feed in this fake: it falls back to each person's own feed
   const r = await runOptin({ env: {}, kv, api, model, day: '2026-11-24' })
-  assert.equal(r.optedIn, 2)
+  assert.equal(r.source, 'their feeds')
   assert.equal(r.replied, 1)
   assert.equal(api.posts.at(-1).reply.parent.uri, 'at://did:plc:h/app.bsky.feed.post/1')
   const again = await runOptin({ env: {}, kv, api, model, day: '2026-11-24' })
@@ -354,6 +356,7 @@ test('review 4: a post that mentions autonomist and is seen by the opt-in sweep 
   await kv.put('bot:pinned', JSON.stringify({ uri: 'at://did:plc:me/app.bsky.feed.post/p', cid: 'p' }))
   const model = { structured: async () => ({ data: { action: 'reply', text: 'Who else got that notice?', why: '' } }) }
   await runReplies({ env: {}, kv, api, model, day: '2026-11-24' })
+  await refreshOptins({ kv, api, me: 'did:plc:me' })
   await runOptin({ env: {}, kv, api, model, day: '2026-11-24' })
   assert.equal(api.posts.filter((p) => p.reply?.parent?.uri === postUri).length, 1)
 })

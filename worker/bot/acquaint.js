@@ -17,7 +17,8 @@ import { obj } from './model.js'
 import { writeLog } from './log.js'
 
 export const ACQUAINTANCE = 'org.jason-edelman.autonomist.acquaintance'
-const WEEK = 7 * 86400_000
+const DAY = 86400_000
+const WEEK = 7 * DAY
 
 /** The https endpoint of a DID's PDS, from its DID document (plc.directory, or did:web's well-known file). */
 export async function resolvePds(did, f = fetch) {
@@ -158,7 +159,15 @@ export async function runAcquaint({ env, kv, api, model, fetch: f = fetch, now =
     }
   }
   const have = new Map(notes.map((r) => [r.uri.split('/').pop(), r.value]))
-  const due = [...readers.values()].filter((p) => !have.has(p.did) || now - Date.parse(have.get(p.did).updatedAt || 0) > WEEK)
+  // a note is written for a new opt-in, and rewritten after a week, or sooner (after a day) once they've posted a lot
+  // since (runOptin counts their new posts in acqnew:<did>)
+  const after = setting(env.BOT_ACQUAINT_AFTER_POSTS, 20, { min: 1 })
+  const due = []
+  for (const p of readers.values()) {
+    const age = have.has(p.did) ? now - Date.parse(have.get(p.did).updatedAt || 0) : Infinity
+    const posted = Number((await kv.get(`acqnew:${p.did}`)) || 0)
+    if (age > WEEK || (age > DAY && posted >= after)) due.push(p)
+  }
   const perRun = setting(env.BOT_ACQUAINT_PER_RUN, 3, { min: 0, max: 20 })
   const wrote = [], errors = []
   for (const p of due.slice(0, perRun)) {
@@ -184,6 +193,7 @@ export async function runAcquaint({ env, kv, api, model, fetch: f = fetch, now =
       }
       const res = await api.call('POST', 'com.atproto.repo.putRecord', { body: { repo: s.did, collection: ACQUAINTANCE, rkey: p.did, record } })
       await kv.put(`acq:${p.did}`, JSON.stringify({ note: clean.note, topics: clean.topics, at: record.updatedAt }))
+      await kv.delete(`acqnew:${p.did}`).catch(() => {})
       wrote.push(p.did)
       await writeLog(api, { kind: prev ? 'reacquainted' : 'acquainted', context: 'opt-in', result: res.uri })
     } catch (e) {

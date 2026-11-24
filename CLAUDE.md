@@ -86,8 +86,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   - Automated since 2026-11-23 (below): autonomist writes one a day as a record in its own repository.
 - **autonomist on Bluesky** (Jason, 2026-11-23: "Opt out for sources, starting with my follows. Cadence: one blog post a
   day, automatic. For Bluesky: like pinned post to opt in to unsolicited opinions. Autonomist posts problem posing
-  questions and engages with all replies."). `worker/bot/`, run by two crons (replies, discussions and the sweep
-  every five minutes; the journal, questions and opt-in hourly at :07); off unless `BOT_ENABLED`.
+  questions and engages with all replies."). `worker/bot/`, run by two crons (replies, discussions, opt-in questions and the
+  sweep every five minutes; the journal, feed questions, follows and notes hourly at :07); off unless `BOT_ENABLED`.
   - **Sources:** the links that accounts `BOT_SOURCE_ACTOR` follows share (`sources.js`), read only when robots.txt and
     Content-Signal allow (opt-out, as the research watch).
   - **The journal, daily and automatic** (`journal.js`): entries are `org.jason-edelman.autonomist.journal` records
@@ -143,22 +143,29 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     `thinking-pages.js` adds exactly the four Jetstream hosts, for that page only (tested against live.js's list).
     It connects only when asked, because the visitor's IP address reaches Bluesky.
   - **Opt-in** (`optin.js`): the accounts that like the pinned post may get a reply on their own posts, at most one a
-    day each and `BOT_OPTIN_DAILY` in all. Unliking ends it at the next hourly refresh. The pinned post is versioned
+    day each and `BOT_OPTIN_DAILY` in all. Unliking ends it at the next hourly refresh. autonomist follows the
+    opted-in and unfollows the unliked (Jason, 2026-11-24: "autonomist should follow whoever opts in OR check their
+    feeds periodically and strategically for updates"; `syncFollows`, hourly, only from a complete, fresh list of
+    likes; no bots). Every five minutes it reads its home feed back to the last post seen (`bot:timeline:seen`;
+    each person's own feed if the home feed fails), ranks their recent top-level posts by `relevance` (its subjects
+    and their note's topics), and weighs the best `BOT_OPTIN_PER_RUN`. Their new posts count toward rewriting their
+    note (`acqnew:<did>`). The pinned post is versioned
     (`PINNED_VERSION`): a new wording is pinned in place of the old, which stays up, unpinned
     (`bot:pinned:previous`). Its likers keep what they agreed to, questions only (`read: false` in `bot:optin`).
   - **Getting to know opt-ins** (Jason, 2026-11-24: "if someone opts in it should read their repo to get to know them
     and get some context"; his calls: a public note, deleted on unlike; read the profile, posts, reposts and likes;
     the pinned post says so; `acquaint.js`). Hourly, for each account that likes the *current* pinned post: read its
     profile, recent posts and reposts (app view) and recent likes (its own repository, via its DID document), and
-    write or refresh (weekly) an `org.jason-edelman.autonomist.acquaintance` record keyed by its DID, shown at
+    write or rewrite (weekly, or after a day once they've posted `BOT_ACQUAINT_AFTER_POSTS` new posts) an
+    `org.jason-edelman.autonomist.acquaintance` record keyed by its DID, shown at
     `/known/<handle>/` (`known-pages.js`; noindex). The note is read back before replying to that person (opt-in,
     replies, discussions). It's the one place autonomist writes about a person, so: about what they post about, never
     who they are, written to them in the second person; `cleanAcquaintance` withholds a note with their name or
     handle, a quote, a figure, a link or a sensitive identity term (topics are kept). Never read: follows, lists,
     blocks. Unliking deletes the note at the next refresh, but only from a complete, fresh list of likes. Logs record
     that it happened (`acquainted`, `reacquainted`, `forgot`) and never who unliked. `BOT_ACQUAINT_PER_RUN` caps it.
-  - **Never:** follow, like, repost, DM, @-mention (no mention facets), or reply unasked to anyone who hasn't opted
-    in. Replies link only to this site, Power Explained, or one source their own fact-check verified; a question post
+  - **Never:** follow anyone but the opted-in, like, repost, DM, @-mention (no mention facets), or reply unasked to
+    anyone who hasn't opted in. Replies link only to this site, Power Explained, or one source their own fact-check verified; a question post
     carries only the article it's about, as a link card.
   - **Once only:** every answer takes the shared claim `answered:<uri>` before the model is called; the journal marks
     the day done right after storing the entry, and posts it in a separate retryable step; question slots are

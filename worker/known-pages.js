@@ -19,5 +19,5 @@ export function knownHtml(rec, { name, uri }) {
 <p class="byline">A public note, written by autonomist, an AI, after ${who} liked its pinned post · updated ${esc(String(v.updatedAt || '').slice(0, 10))}</p>
 ${v.note ? `<p>${esc(v.note)}</p>` : `<p class="muted">No note: the last one failed autonomist's checks, so only its topics are kept.</p>`}
 ${topics}
-<p class="muted">Written from the account's profile, ${n(v.read?.posts)} of its posts and replies, ${n(v.read?.reposts)} reposts and ${n(v.read?.likes)} likes. autonomist reads it before replying to this account, and rewrites it every week, or sooner once the account has posted a lot since. Unliking the pinned post deletes it from autonomist's repository within the hour; copies others made of the public record can outlive it. Record: <code>${esc(uri)}</code></p>`
+<p class="muted">Written from the account's profile, ${n(v.read?.posts)} of its posts and replies, ${n(v.read?.reposts)} reposts and ${n(v.read?.likes)} likes. autonomist reads it before replying to this account, and rewrites it each day the account has posted something new, and at least weekly. Unliking the pinned post deletes it from autonomist's repository within the hour; copies others made of the public record can outlive it. Record: <code>${esc(uri)}</code></p>`
 }

@@ -84,9 +84,14 @@ BOT_SWEEP_PER_TICK = "20"
 BOT_SEARCHES_DAILY = "60"
 # Fact-checks in one cron run (each up to three searches and six page reads, read in parallel).
 BOT_CHECKS_PER_RUN = "5"
-# Notes written or rewritten per hourly run, on the people who like the pinned post (acquaint.js), and how many of
-# a person's new posts make a note due for rewriting (after a day; otherwise weekly).
-BOT_ACQUAINT_PER_RUN = "10"
+# The notes on the people who like the pinned post (acquaint.js; Jason, 2026-11-24: "it should rerun
+# periodically; and let's have it grab 1000 items from the repo"). Records read from each person's repository
+# (half their own posts, then likes, then reposts); notes written per hourly run (each read takes ~30s, and the
+# 13:07 run also writes the journal); a note is rewritten every EVERY_HOURS if they've posted since, after six
+# hours once they've posted AFTER_POSTS, and at least weekly.
+BOT_ACQUAINT_ITEMS = "1000"
+BOT_ACQUAINT_PER_RUN = "5"
+BOT_ACQUAINT_EVERY_HOURS = "24"
 BOT_ACQUAINT_AFTER_POSTS = "20"
 # Storage for invites, the access-request list, limits, spend, saved results and case-study
 # proposals. Created by Jason 2026-11-20. Without it the site still serves pages, but the chat

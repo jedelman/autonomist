@@ -15,7 +15,12 @@ const BO = 'did:plc:cccccccccccccccccccccccc'
 const pdsFetch = async (url) => {
   const u = String(url)
   if (u === `https://plc.directory/${ANA}`) return Response.json({ service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.ana.example' }] })
-  if (u.startsWith('https://pds.ana.example/xrpc/com.atproto.repo.listRecords')) return Response.json({ records: [{ value: { subject: { uri: 'at://did:plc:x/app.bsky.feed.post/1' } } }, { value: { subject: { uri: 'at://did:plc:x/app.bsky.feed.post/2' } } }] })
+  if (u.startsWith('https://pds.ana.example/xrpc/com.atproto.repo.listRecords')) {
+    const q = new URL(u).searchParams
+    if (q.get('collection') === 'app.bsky.feed.post') return Response.json({ records: [{ value: { text: 'Our building got a 20% rent hike notice today. Meeting Thursday.' } }] })
+    if (q.get('collection') === 'app.bsky.feed.repost') return Response.json({ records: [{ value: { subject: { uri: 'at://did:plc:x/app.bsky.feed.post/9' } } }] })
+    return Response.json({ records: [{ value: { subject: { uri: 'at://did:plc:x/app.bsky.feed.post/1' } } }, { value: { subject: { uri: 'at://did:plc:x/app.bsky.feed.post/2' } } }] })
+  }
   return new Response('', { status: 404 })
 }
 
@@ -55,11 +60,14 @@ test('acquaint: reads the profile, own posts, reposts, and likes from the person
   const acc = await readAccount({ did: ANA, api: fakeApi(), fetch: pdsFetch })
   assert.equal(acc.bio, 'Tenant organizer in Norfolk.')
   assert.deepEqual(acc.posts, ['Our building got a 20% rent hike notice today. Meeting Thursday.'])
-  assert.deepEqual(acc.reposts, ['Land trusts keep homes affordable for good.'])
+  assert.deepEqual(acc.reposts, ['liked post 9 about bus routes'])
   assert.equal(acc.likes.length, 2)
-  // a repository it can't reach leaves likes empty, not the read failed
-  const noLikes = await readAccount({ did: ANA, api: fakeApi(), fetch: async () => new Response('', { status: 500 }) })
-  assert.deepEqual(noLikes.likes, [])
+  assert.equal(acc.from, 'repository')
+  // a repository it can't reach: its recent posts and reposts come from the app view, and no likes
+  const fallback = await readAccount({ did: ANA, api: fakeApi(), fetch: async () => new Response('', { status: 500 }) })
+  assert.equal(fallback.from, 'app view')
+  assert.deepEqual(fallback.reposts, ['Land trusts keep homes affordable for good.'])
+  assert.deepEqual(fallback.likes, [])
 })
 
 test('acquaint: notes are about what someone posts about, never who they are', () => {
@@ -98,7 +106,7 @@ test('acquaint: only those who liked the current post are read; notes are writte
   assert.ok(!api.store.has(gone) && (await kv.get(`acq:${gone}`)) === null)
   const rec = api.store.get(ANA).value
   assert.equal(rec.subject, ANA)
-  assert.deepEqual(rec.read, { posts: 1, reposts: 1, likes: 2 })
+  assert.deepEqual(rec.read, { posts: 1, reposts: 1, likes: 2, from: 'repository' })
   assert.ok(prompts[0].includes('POSTS BY OTHERS THEY LIKED') && !prompts.some((p) => p.includes('bo.example')))
   assert.deepEqual(api.logs.map((l) => l.kind).sort(), ['acquainted', 'forgot'])
   assert.ok(!JSON.stringify(api.logs).includes(gone)) // the deletion log doesn't name who unliked
@@ -258,4 +266,31 @@ test('acquaint: a note is rewritten after a day once its person has posted a lot
   assert.equal((await runAcquaint({ env: {}, kv, api, model, fetch: pdsFetch, now })).wrote, 1)
   assert.equal(await kv.get(`acqnew:${ANA}`), null)
   assert.equal(api.store.get(ANA).value.createdAt, '2026-11-24T02:00:00Z')
+})
+
+test('acquaint: reads up to the item budget from the repository, paging, and reruns daily when there is news', async () => {
+  const pages = []
+  const f = async (url) => {
+    const u = String(url)
+    if (u.startsWith('https://plc.directory/')) return Response.json({ service: [{ id: '#atproto_pds', serviceEndpoint: 'https://pds.ana.example' }] })
+    const q = new URL(u).searchParams
+    pages.push([q.get('collection'), q.get('limit'), q.get('cursor')])
+    const n = Number(q.get('limit'))
+    const page = Number(q.get('cursor') || 0)
+    const recs = Array.from({ length: n }, (_, i) => q.get('collection') === 'app.bsky.feed.post' ? { value: { text: `post ${page * 100 + i}` } } : { value: { subject: { uri: `at://did:plc:x/app.bsky.feed.post/${page}x${i}` } } })
+    return Response.json({ records: recs, cursor: String(page + 1) })
+  }
+  const api = fakeApi()
+  const acc = await readAccount({ did: ANA, api, fetch: f, items: 1000 })
+  assert.deepEqual([acc.posts.length, acc.likes.length, acc.reposts.length], [500, 300, 200])
+  assert.deepEqual(pages.filter((p) => p[0] === 'app.bsky.feed.post').map((p) => p[1]), ['100', '100', '100', '100', '100'])
+  // the rerun rule: a day old with news is due; a day old without news isn't; a week old always is
+  const kv = memoryKV()
+  const now = Date.parse('2026-11-26T03:00:00Z')
+  await kv.put('bot:optin', JSON.stringify({ at: now, complete: true, people: [{ did: ANA, handle: 'ana.example', read: true }] }))
+  const api2 = fakeApi({ records: [{ uri: `at://${ME}/${ACQUAINTANCE}/${ANA}`, value: { subject: ANA, note: 'old', updatedAt: '2026-11-25T01:00:00Z' } }] })
+  const model = { structured: async () => ({ data: { note: 'You post about rent and your neighbors.', topics: ['rent'] } }) }
+  assert.equal((await runAcquaint({ env: {}, kv, api: api2, model, fetch: pdsFetch, now })).wrote, 0)
+  await kv.put(`acqnew:${ANA}`, '1')
+  assert.equal((await runAcquaint({ env: {}, kv, api: api2, model, fetch: pdsFetch, now })).wrote, 1)
 })

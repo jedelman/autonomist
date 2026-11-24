@@ -154,10 +154,14 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     (`bot:pinned:previous`). Its likers keep what they agreed to, questions only (`read: false` in `bot:optin`).
   - **Getting to know opt-ins** (Jason, 2026-11-24: "if someone opts in it should read their repo to get to know them
     and get some context"; his calls: a public note, deleted on unlike; read the profile, posts, reposts and likes;
-    the pinned post says so; `acquaint.js`). Hourly, for each account that likes the *current* pinned post: read its
-    profile, recent posts and reposts (app view) and recent likes (its own repository, via its DID document), and
-    write or rewrite (weekly, or after a day once they've posted `BOT_ACQUAINT_AFTER_POSTS` new posts) an
-    `org.jason-edelman.autonomist.acquaintance` record keyed by its DID, shown at
+    the pinned post says so; later: "it should rerun periodically; and let's have it grab 1000 items from the repo";
+    `acquaint.js`). Hourly, for each account that likes the *current* pinned post and whose note is due: read its
+    profile (app view) and up to `BOT_ACQUAINT_ITEMS` records from its own repository via its DID document (half its
+    own posts, then likes, then reposts, newest first, each clipped to a post's length, the whole under the
+    long-context tier; the app view's recent posts if the repository can't be reached), and write or rewrite an
+    `org.jason-edelman.autonomist.acquaintance` record keyed by its DID. Due: new, or every
+    `BOT_ACQUAINT_EVERY_HOURS` if they've posted since, or after six hours once they've posted
+    `BOT_ACQUAINT_AFTER_POSTS`, or weekly. Shown at
     `/known/<handle>/` (`known-pages.js`; noindex). The note is read back before replying to that person (opt-in,
     replies, discussions). It's the one place autonomist writes about a person, so: about what they post about, never
     who they are, written to them in the second person; `cleanAcquaintance` withholds a note with their name or

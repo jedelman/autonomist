@@ -19,7 +19,11 @@ export const REFLECTION_FIELDS = {
   reflection: { type: 'string' },
   themes: { type: 'array', items: { type: 'string' } },
 }
-export const REFLECTION_RULES = `Also write, for your public run journal:
+// Replies go out in the language of the post they answer (Jason, 2026-11-24, after a Japanese-speaking account opted
+// in: "Let's fix the prompt so autonomist can reply in the same language!"). The run journal stays in English.
+export const LANGUAGE_RULES = `- Language: write your reply in the language of the post you're answering, as a fluent, plain-spoken speaker would; the post's own language tags are given as a hint, but trust the text. If it's mixed or unclear, use English. Give that language's code in lang ("en", "ja", "es", "pt-BR"). Power Explained and your site are in English: say so if you point someone to them in another language.`
+
+export const REFLECTION_RULES = `Also write, for your public run journal, always in English:
 - reflection: one to three sentences, in public, about this interaction: what you noticed (a problem people keep raising, a question you couldn't answer well, a correction someone offered and its source, something you'd do differently). About the conversation, never about a person: no names, no handles, nothing personal. No quotation marks, no figures, no links.
 - themes: up to three short lowercase tags for the problems people raised, like "rent increases" or "absentee owners".`
 

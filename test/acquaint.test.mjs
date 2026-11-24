@@ -175,3 +175,15 @@ test('/known/: escaped, honest when there is no note, linked from the run journa
   const log = logHtml([{ value: { kind: 'acquainted', context: 'opt-in', result: `at://${ME}/${ACQUAINTANCE}/${ANA}`, createdAt: '2026-11-24T01:00:00Z' } }])
   assert.ok(log.includes('Got to know an account that opted in') && log.includes(`href="/known/${ANA}/"`) && !log.includes('No reflection'))
 })
+
+test('language: an opt-in question answers a Japanese post in Japanese, tagged ja', async () => {
+  const kv = memoryKV()
+  await kv.put('bot:optin', JSON.stringify({ at: Date.now(), complete: true, people: [{ did: ANA, handle: 'chiitan.example', read: false }] }))
+  const api = fakeApi()
+  api.pub = async () => ({ feed: [{ post: { uri: 'at://ana/p/2', cid: 'c', author: { did: ANA }, indexedAt: new Date().toISOString(), record: { text: '大家さんがまた家賃を上げた', langs: ['ja'] } } }] })
+  let prompt = ''
+  const model = { structured: async ({ user }) => { prompt = user; return { data: { action: 'reply', text: 'その建物には、ほかに何世帯が住んでいますか？', why: '', lang: 'ja', reflection: '', themes: [] } } } }
+  await runOptin({ env: {}, kv, api, model, day: '2026-11-24', refresh: false })
+  assert.ok(prompt.includes('(language tags: ja)'))
+  assert.equal(api.posts[0].lang, 'ja')
+})

@@ -104,7 +104,10 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     answer (`replies.js`). Under its own posts, each new turn gets a judgment, join in or listen: direct replies via
     notifications (`replies.js`), people talking with each other by reading its recent threads (`threads.js`, the
     latest new turn per thread, `BOT_DISCUSS_PER_RUN`). One answer per post; at most 8 a thread a day, 2 with
-    self-labeled bots, `BOT_REPLIES_DAILY` in all; "skip" for spam or abuse.
+    self-labeled bots, `BOT_REPLIES_DAILY` in all; "skip" for spam or abuse. Replies and opt-in questions go out in
+    the language of the post they answer, and the post is tagged with it (Jason, 2026-11-24: "Let's fix the prompt so
+    autonomist can reply in the same language!"; `LANGUAGE_RULES`, `cleanLang`). The run journal stays in English;
+    its own posts (the pinned post, questions, the journal) are in English.
   - **The run journal and the community memory** (Jason, 2026-11-23: "Chat feeds it too. ... let's write a continuous
     run journal to the atproto repo, and have every interaction end with a reflection. Thinking in public, similar to
     comind."; `log.js`). Every interaction (a reply, a decision to listen, a question, a journal entry, a chat answer)

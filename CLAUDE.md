@@ -148,7 +148,11 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     feeds periodically and strategically for updates"; `syncFollows`, hourly, only from a complete, fresh list of
     likes; no bots). Every five minutes it reads its home feed back to the last post seen (`bot:timeline:seen`;
     each person's own feed if the home feed fails), ranks their recent top-level posts by `relevance` (its subjects
-    and their note's topics), and weighs the best `BOT_OPTIN_PER_RUN`. Their new posts count toward rewriting their
+    and their note's topics), and weighs the best `BOT_OPTIN_PER_RUN`. A post is read as the thread it starts
+    (`selfThread`: the author's own chain of self-replies; Jason, 2026-11-24: "self replies are significant by thread
+    length, it's a good way to see deep and slow vs fast and snappy thought"), weighed only once its last post is
+    `BOT_OPTIN_SETTLE_MINUTES` old (the cursor is held just before a thread still being written; new posts are counted
+    from their own cursor, `bot:timeline:counted`), and answered at its end, under its start, with both claimed. Their new posts count toward rewriting their
     note (`acqnew:<did>`). The pinned post is versioned
     (`PINNED_VERSION`): a new wording is pinned in place of the old, which stays up, unpinned
     (`bot:pinned:previous`). Its likers keep what they agreed to, questions only (`read: false` in `bot:optin`).
@@ -158,7 +162,9 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     `acquaint.js`). Hourly, for each account that likes the *current* pinned post and whose note is due: read its
     profile (app view) and up to `BOT_ACQUAINT_ITEMS` records from its own repository via its DID document (half its
     own posts, then likes, then reposts, newest first, each clipped to a post's length, the whole under the
-    long-context tier; the app view's recent posts if the repository can't be reached), and write or rewrite an
+    long-context tier; the app view's recent posts if the repository can't be reached). Its own posts are read as
+    threads, single posts and replies (`shapeOf`), with each thread's length and span and an overall shape computed by
+    code; the note may describe the shape of their posting in words, never as a judgment. Then write or rewrite an
     `org.jason-edelman.autonomist.acquaintance` record keyed by its DID. Due: new, or every
     `BOT_ACQUAINT_EVERY_HOURS` if they've posted since, or after six hours once they've posted
     `BOT_ACQUAINT_AFTER_POSTS`, or weekly. Shown at

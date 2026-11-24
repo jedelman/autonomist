@@ -2,8 +2,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { memoryKV } from './helpers.mjs'
-import { readAccount, cleanAcquaintance, runAcquaint, acquaintanceNote, resolvePds, ACQUAINTANCE } from '../worker/bot/acquaint.js'
-import { ensurePinned, refreshOptins, runOptin, syncFollows, relevance, PINNED_TEXT, PINNED_VERSION } from '../worker/bot/optin.js'
+import { readAccount, cleanAcquaintance, runAcquaint, acquaintanceNote, resolvePds, shapeOf, ACQUAINTANCE } from '../worker/bot/acquaint.js'
+import { ensurePinned, refreshOptins, runOptin, syncFollows, relevance, selfThread, PINNED_TEXT, PINNED_VERSION } from '../worker/bot/optin.js'
 import { knownHtml, HANDLE } from '../worker/known-pages.js'
 import { noteLink, logHtml } from '../worker/thinking-pages.js'
 import { graphemes } from '../worker/bot/text.js'
@@ -166,7 +166,7 @@ test('opt-in: a question to someone with a note reads the note first', async () 
   await kv.put('bot:optin', JSON.stringify({ at: Date.now(), complete: true, people: [{ did: ANA, handle: 'ana.example', read: true }] }))
   await kv.put(`acq:${ANA}`, JSON.stringify({ note: 'You post about your building.', topics: ['repairs'] }))
   const api = fakeApi()
-  api.pub = async () => ({ feed: [{ post: { uri: 'at://ana/p/1', cid: 'c', author: { did: ANA }, indexedAt: new Date().toISOString(), record: { text: 'The landlord ignored the leak again.' } } }] })
+  api.pub = async () => ({ feed: [{ post: { uri: 'at://ana/p/1', cid: 'c', author: { did: ANA }, indexedAt: new Date(Date.now() - 20 * 60e3).toISOString(), record: { text: 'The landlord ignored the leak again.' } } }] })
   let prompt = ''
   const model = { structured: async ({ user }) => { prompt = user; return { data: { action: 'skip', text: '', why: 'n', reflection: '', themes: [] } } } }
   await runOptin({ env: {}, kv, api, model, day: '2026-11-24', refresh: false })
@@ -188,7 +188,7 @@ test('language: an opt-in question answers a Japanese post in Japanese, tagged j
   const kv = memoryKV()
   await kv.put('bot:optin', JSON.stringify({ at: Date.now(), complete: true, people: [{ did: ANA, handle: 'chiitan.example', read: false }] }))
   const api = fakeApi()
-  api.pub = async () => ({ feed: [{ post: { uri: 'at://ana/p/2', cid: 'c', author: { did: ANA }, indexedAt: new Date().toISOString(), record: { text: '大家さんがまた家賃を上げた', langs: ['ja'] } } }] })
+  api.pub = async () => ({ feed: [{ post: { uri: 'at://ana/p/2', cid: 'c', author: { did: ANA }, indexedAt: new Date(Date.now() - 20 * 60e3).toISOString(), record: { text: '大家さんがまた家賃を上げた', langs: ['ja'] } } }] })
   let prompt = ''
   const model = { structured: async ({ user }) => { prompt = user; return { data: { action: 'reply', text: 'その建物には、ほかに何世帯が住んでいますか？', why: '', lang: 'ja', reflection: '', themes: [] } } } }
   await runOptin({ env: {}, kv, api, model, day: '2026-11-24', refresh: false })
@@ -293,4 +293,78 @@ test('acquaint: reads up to the item budget from the repository, paging, and rer
   assert.equal((await runAcquaint({ env: {}, kv, api: api2, model, fetch: pdsFetch, now })).wrote, 0)
   await kv.put(`acqnew:${ANA}`, '1')
   assert.equal((await runAcquaint({ env: {}, kv, api: api2, model, fetch: pdsFetch, now })).wrote, 1)
+})
+
+test('threads: their own posts are read as threads, singles and replies, with the shape computed by code', () => {
+  const u = (n) => `at://${ANA}/app.bsky.feed.post/${n}`
+  const rec = (n, text, at, reply) => ({ uri: u(n), value: { text, createdAt: at, ...(reply ? { reply } : {}) } })
+  const self = (n, root, parent) => ({ root: { uri: u(root) }, parent: { uri: u(parent) } })
+  const posts = [ // newest first, as a repository lists them
+    rec('t3', 'and that is why the lease matters.', '2026-11-20T15:00:00Z', self('t1', 't1', 't2')),
+    rec('r1', 'Agreed, the council punted again.', '2026-11-20T14:30:00Z', { root: { uri: 'at://did:plc:x/app.bsky.feed.post/a' }, parent: { uri: 'at://did:plc:x/app.bsky.feed.post/a' } }),
+    rec('t2', 'Second, the landlord owns the land too.', '2026-11-20T13:00:00Z', self('t1', 't1', 't1')),
+    rec('a1', 'Thanks! Here is the source.', '2026-11-20T12:30:00Z', { root: { uri: u('t1') }, parent: { uri: 'at://did:plc:x/app.bsky.feed.post/q' } }), // answering someone in their own thread
+    rec('t1', 'A thread on why our rent keeps going up. First, the building sold.', '2026-11-20T12:00:00Z'),
+    rec('s1', 'Soup night.', '2026-11-18T12:00:00Z'),
+  ]
+  const sh = shapeOf(ANA, posts)
+  assert.equal(sh.threads.length, 1)
+  assert.deepEqual(sh.threads[0].posts.map((p) => p.uri.split('/').pop()), ['t1', 't2', 't3'])
+  assert.equal(sh.threads[0].ms, 3 * 3600e3)
+  assert.deepEqual(sh.singles.map((p) => p.text), ['Soup night.'])
+  assert.deepEqual(sh.replies.map((p) => p.uri.split('/').pop()), ['r1', 'a1'])
+  assert.equal(sh.summary, 'Over about 2 days, 6 posts of their own: 1 thread of their own (3 to 3 posts, typically 3; the longest ran 3 posts over 3 hours), 1 single post, and 2 replies in conversations.')
+})
+
+test('threads: the note is written from threads as threads', async () => {
+  const kv = memoryKV()
+  await kv.put('bot:optin', JSON.stringify({ at: Date.now(), complete: true, people: [{ did: ANA, handle: 'ana.example', read: true }] }))
+  const f = async (url) => {
+    const s = String(url)
+    if (s.startsWith('https://plc.directory/')) return Response.json({ service: [{ id: '#atproto_pds', serviceEndpoint: 'https://pds.ana.example' }] })
+    const q = new URL(s).searchParams
+    if (q.get('collection') === 'app.bsky.feed.post') return Response.json({ records: [
+      { uri: `at://${ANA}/app.bsky.feed.post/2`, value: { text: 'Part two: who owns the land.', createdAt: '2026-11-20T13:00:00Z', reply: { root: { uri: `at://${ANA}/app.bsky.feed.post/1` }, parent: { uri: `at://${ANA}/app.bsky.feed.post/1` } } } },
+      { uri: `at://${ANA}/app.bsky.feed.post/1`, value: { text: 'A thread on rent.', createdAt: '2026-11-20T12:00:00Z' } },
+    ] })
+    return Response.json({ records: [] })
+  }
+  let prompt = ''
+  const model = { structured: async ({ user }) => { prompt = user; return { data: { note: 'You work through rent and land ownership in threads.', topics: ['rent'] } } } }
+  await runAcquaint({ env: {}, kv, api: fakeApi(), model, fetch: f })
+  assert.ok(prompt.includes('SHAPE (computed by code)'))
+  assert.ok(prompt.includes('Thread 1: 2 posts, over 60 minutes\n  1/ A thread on rent.\n  2/ Part two: who owns the land.'))
+})
+
+test('threads: an opt-in question waits for a thread to settle, reads all of it, and answers at its end', async () => {
+  const kv = memoryKV()
+  const t0 = new Date('2026-11-24T03:00:00Z')
+  await kv.put('bot:optin', JSON.stringify({ at: t0.getTime(), complete: true, people: [{ did: ANA, handle: 'ana.example', read: true }] }))
+  const at = (min, base = t0) => new Date(base.getTime() - min * 60e3).toISOString()
+  const post = (n, text, min) => ({ uri: `at://${ANA}/app.bsky.feed.post/${n}`, cid: `c${n}`, author: { did: ANA }, indexedAt: at(min), record: { text } })
+  const p1 = post(1, 'A thread on our rent going up. First, the building sold.', 30)
+  const p2 = { ...post(2, 'Second, the new owner owns six more buildings nearby.', 20), record: { text: 'Second, the new owner owns six more buildings nearby.', reply: { root: { uri: p1.uri }, parent: { uri: p1.uri } } } }
+  const p3 = { ...post(3, 'Third, our lease is up in March.', 4), record: { text: 'Third, our lease is up in March.', reply: { root: { uri: p1.uri }, parent: { uri: p2.uri } } } }
+  const api = fakeApi()
+  api.call = async (m, nsid) => (nsid === 'app.bsky.feed.getTimeline' ? { feed: [{ post: p3 }, { post: p2 }, { post: p1 }] } : nsid === 'com.atproto.repo.createRecord' ? { uri: 'at://log' } : {})
+  api.pub = async (nsid, q) => (nsid === 'app.bsky.feed.getPostThread' && q.uri === p1.uri
+    ? { thread: { post: p1, replies: [{ post: { uri: 'at://did:plc:x/app.bsky.feed.post/z', author: { did: 'did:plc:x' }, indexedAt: at(25) }, replies: [] }, { post: p2, replies: [{ post: p3, replies: [] }] }] } }
+    : {})
+  assert.deepEqual((await selfThread(api, p1)).map((p) => p.uri), [p1.uri, p2.uri, p3.uri])
+  let prompt = ''
+  const model = { structured: async ({ user }) => { prompt = user; return { data: { action: 'reply', text: 'How many of your neighbors have leases ending in March?', why: '', lang: 'en', reflection: '', themes: [] } } } }
+  // four minutes after the last post: still being written, so it waits, and the cursor stays before the thread
+  const r1 = await runOptin({ env: {}, kv, api, model, day: '2026-11-24', now: t0 })
+  assert.deepEqual([r1.waiting, r1.weighed], [1, 0])
+  assert.ok((await kv.get('bot:timeline:seen')) < p1.indexedAt)
+  assert.equal(await kv.get(`answered:${p1.uri}`), null)
+  // fifteen minutes later it has settled: the whole thread is read and answered at its end
+  const t1 = new Date(t0.getTime() + 15 * 60e3)
+  const r2 = await runOptin({ env: {}, kv, api, model, day: '2026-11-24', now: t1 })
+  assert.equal(r2.replied, 1)
+  assert.ok(prompt.includes('THREAD by @ana.example, 3 posts written over 26 minutes') && prompt.includes('3/ Third, our lease is up in March.'))
+  assert.deepEqual(api.posts[0].reply, { root: { uri: p1.uri, cid: 'c1' }, parent: { uri: p3.uri, cid: 'c3' } })
+  assert.ok((await kv.get(`answered:${p3.uri}`)).startsWith('at://'))
+  // its new posts were counted once, not again when the timeline was re-read
+  assert.equal(await kv.get(`acqnew:${ANA}`), '3')
 })

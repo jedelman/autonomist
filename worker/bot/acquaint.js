@@ -70,48 +70,93 @@ async function hydrate(api, uris) {
   return texts
 }
 
+const span = (ms) => {
+  const m = Math.round(ms / 60000)
+  return m < 2 ? 'within a minute or two' : m < 90 ? `over ${m} minutes` : m < 48 * 60 ? `over ${Math.round(m / 60)} hours` : `over ${Math.round(m / 1440)} days`
+}
+
+/**
+ * The shape of someone's posting, from their own post records (Jason, 2026-11-24: "self replies are significant by
+ * thread length, it's a good way to see deep and slow vs fast and snappy thought"). Threads are chains of their own
+ * posts replying to themselves under a root of theirs, in order, with how long each took; singles are top-level posts
+ * with no self-replies; replies are their posts in other people's conversations (or answering someone in their own).
+ * `posts` are [{ uri, value }] records; the summary is computed by code.
+ */
+export function shapeOf(did, posts) {
+  // (a record with no URI can't be threaded: it counts as a single post)
+  const mine = (u) => typeof u === 'string' && u.startsWith(`at://${did}/`)
+  const items = posts
+    .map((r) => ({ uri: r.uri, text: String(r.value?.text || '').replace(/\s+/g, ' ').trim().slice(0, 300), at: r.value?.createdAt || '', parent: r.value?.reply?.parent?.uri, root: r.value?.reply?.root?.uri }))
+    .filter((p) => p.text)
+  const groups = new Map(), replies = []
+  for (const p of items) {
+    if (!p.parent) { const key = p.uri || Symbol('post'); groups.set(key, [...(groups.get(key) || []), p]) }
+    else if (mine(p.root) && mine(p.parent)) groups.set(p.root, [...(groups.get(p.root) || []), p])
+    else replies.push(p)
+  }
+  const threads = [], singles = []
+  for (const [root, ps] of groups) {
+    ps.sort((a, b) => a.at.localeCompare(b.at))
+    if (ps.length === 1 && ps[0].uri === root) singles.push(ps[0])
+    else threads.push({ root, posts: ps, ms: Math.max(0, Date.parse(ps.at(-1).at) - Date.parse(ps[0].at)) || 0, whole: ps[0].uri === root })
+  }
+  threads.sort((a, b) => b.posts[0].at.localeCompare(a.posts[0].at))
+  const times = items.map((p) => Date.parse(p.at)).filter(Number.isFinite)
+  const days = times.length ? Math.max(1, Math.round((Math.max(...times) - Math.min(...times)) / 86400_000)) : 0
+  const lens = threads.map((t) => t.posts.length).sort((a, b) => a - b)
+  const longest = threads.reduce((m, t) => (t.posts.length > (m?.posts.length || 0) ? t : m), null)
+  const summary = items.length
+    ? `Over about ${days} day${days === 1 ? '' : 's'}, ${items.length} posts of their own: ${threads.length} thread${threads.length === 1 ? '' : 's'} of their own` +
+      (threads.length ? ` (${lens[0]} to ${lens.at(-1)} posts, typically ${lens[Math.floor(lens.length / 2)]}; the longest ran ${longest.posts.length} posts ${span(longest.ms)})` : '') +
+      `, ${singles.length} single post${singles.length === 1 ? '' : 's'}, and ${replies.length} repl${replies.length === 1 ? 'y' : 'ies'} in conversations.`
+    : 'No posts of their own were read.'
+  return { threads, singles, replies, summary }
+}
+
 /**
  * Reads what an account has made public, from its own repository (Jason, 2026-11-24: "let's have it grab 1000
  * items from the repo"): its own posts and replies, what it reposted and what it liked, newest first, up to
- * BOT_ACQUAINT_ITEMS records in all (half its own posts, then likes, then reposts), plus its profile. Reposts and
- * likes are read through the app view. If the repository can't be reached, its recent posts come from the app view.
- * Nothing else in the repo: never follows, lists or blocks.
+ * BOT_ACQUAINT_ITEMS records in all (half its own posts, then likes, then reposts), plus its profile. Its own posts
+ * are read as threads (shapeOf). Reposts and likes are read through the app view. If the repository can't be
+ * reached, its recent posts come from the app view. Nothing else in the repo: never follows, lists or blocks.
  */
 export async function readAccount({ did, api, fetch: f = fetch, items = 1000 }) {
   const nPosts = Math.round(items * 0.5), nLikes = Math.round(items * 0.3), nReposts = items - nPosts - nLikes
   const profile = await api.pub('app.bsky.actor.getProfile', { actor: did })
-  let posts = [], reposts = [], likes = [], from = 'repository'
+  let own = [], reposts = [], likes = [], from = 'repository'
   let pds = null
   try { pds = await resolvePds(did, f) } catch { pds = null }
   if (pds) {
     try {
-      posts = (await listRepo(pds, did, 'app.bsky.feed.post', nPosts, f)).map((r) => clip(r.value?.text)).filter(Boolean)
+      own = (await listRepo(pds, did, 'app.bsky.feed.post', nPosts, f)).filter((r) => r.value?.text)
       const rp = await listRepo(pds, did, 'app.bsky.feed.repost', nReposts, f)
       const lk = await listRepo(pds, did, 'app.bsky.feed.like', nLikes, f)
       reposts = await hydrate(api, rp.map((r) => r.value?.subject?.uri))
       likes = await hydrate(api, lk.map((r) => r.value?.subject?.uri))
     } catch { pds = null }
   }
-  if (!pds || !posts.length) {
+  if (!pds || !own.length) {
     // a repository we can't reach (or an empty one): its recent posts and reposts from the app view instead
     from = 'app view'
     const feed = await api.pub('app.bsky.feed.getAuthorFeed', { actor: did, limit: 100, filter: 'posts_with_replies' }).catch(() => ({ feed: [] }))
-    posts = [], reposts = reposts.length ? reposts : []
+    own = []
     for (const item of feed.feed || []) {
       const t = textOf(item.post)
       if (!t) continue
       if (item.reason?.$type?.includes('reasonRepost')) { if (!reposts.includes(t)) reposts.push(t) }
-      else if (item.post?.author?.did === did) posts.push(t)
+      else if (item.post?.author?.did === did) own.push({ uri: item.post.uri, value: item.post.record })
     }
   }
-  // stay under the long-context tier: trim likes first, then reposts, then their own posts
-  const size = () => [...posts, ...reposts, ...likes].reduce((a, t) => a + t.length + 3, 0)
-  for (const xs of [likes, reposts, posts]) while (size() > MAX_CHARS && xs.length) xs.pop()
+  const shape = shapeOf(did, own)
+  // stay under the long-context tier: trim likes first, then reposts, then replies, single posts, and threads
+  const size = () => [...shape.threads.flatMap((t) => t.posts), ...shape.singles, ...shape.replies].reduce((a, p) => a + p.text.length + 6, 0) + [...reposts, ...likes].reduce((a, t) => a + t.length + 3, 0)
+  for (const xs of [likes, reposts, shape.replies, shape.singles, shape.threads]) while (size() > MAX_CHARS && xs.length) xs.pop()
   return {
     handle: profile.handle,
     name: String(profile.displayName || '').trim(),
     bio: String(profile.description || '').trim().slice(0, 1000),
-    posts, reposts, likes, from,
+    posts: own.map((r) => clip(r.value?.text)).filter(Boolean), // every post of theirs read, for the counts
+    shape, reposts, likes, from,
   }
 }
 
@@ -123,6 +168,7 @@ Rules:
 - Write to them, in the second person ("You post about ..."). Two to four short sentences, under 500 characters.
 - Say what they post about and care about, above all anything touching housing, land, rent, work, organizing, cooperatives, the commons, or their place. Their own posts count most. Reposts and likes are weaker signs of interest, never of belief, and never put someone else's words in their mouth.
 - There may be hundreds of items, newest first. Look for what recurs, and give more weight to what's recent. One post is not a pattern.
+- How they post is part of knowing them. Their THREADS are chains of their own posts replying to themselves: a long thread written over hours is worked-out, slow thinking; quick single posts and many replies are fast, conversational thinking. The SHAPE line was computed by code. You may describe the shape of their posting in words (never with figures), and never as a judgment of character.
 - Describe what they post about, never who they are. No judgments of character. Never guess or mention age, gender, sexuality, race or ethnicity, religion, health or disability, immigration status, family, money or legal trouble, even if their posts touch on them. No party or ideology labels.
 - Name a place only if their profile names it.
 - No names (theirs or anyone's), no handles, no quotation marks, no figures, no links.
@@ -167,7 +213,11 @@ export async function acquaintanceNote(kv, did, handle) {
 
 function formatAccount(acc) {
   const list = (label, xs) => (xs.length ? `\n\n${label}\n${xs.map((x) => `- ${x}`).join('\n')}` : `\n\n${label}\n(none)`)
-  return `PROFILE\nName: ${acc.name || '(none)'}\nBio: ${acc.bio || '(none)'}${list('THEIR OWN POSTS AND REPLIES (newest first)', acc.posts)}${list('POSTS BY OTHERS THEY REPOSTED', acc.reposts)}${list('POSTS BY OTHERS THEY LIKED', acc.likes)}`
+  const sh = acc.shape || { threads: [], singles: (acc.posts || []).map((text) => ({ text })), replies: [], summary: '' }
+  const threads = sh.threads.length
+    ? `\n\nTHREADS THEY WROTE (newest first; their own posts replying to themselves, in order)\n${sh.threads.map((t, k) => `Thread ${k + 1}: ${t.posts.length} posts, ${span(t.ms)}${t.whole ? '' : ' (its start is older than what was read)'}\n${t.posts.map((p, n) => `  ${n + 1}/ ${p.text}`).join('\n')}`).join('\n')}`
+    : '\n\nTHREADS THEY WROTE\n(none)'
+  return `PROFILE\nName: ${acc.name || '(none)'}\nBio: ${acc.bio || '(none)'}${sh.summary ? `\n\nSHAPE (computed by code)\n${sh.summary}` : ''}${threads}${list('SINGLE POSTS (newest first)', sh.singles.map((p) => p.text))}${list('THEIR REPLIES IN CONVERSATIONS (newest first)', sh.replies.map((p) => p.text))}${list('POSTS BY OTHERS THEY REPOSTED', acc.reposts)}${list('POSTS BY OTHERS THEY LIKED', acc.likes)}`
 }
 
 /** Lists autonomist's notes (up to a thousand). */

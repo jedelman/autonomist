@@ -78,6 +78,8 @@ BOT_DISCUSS_PER_RUN = "8"
 # Questions on opted-in people's posts: in all per UTC day, and posts weighed per five-minute run.
 BOT_OPTIN_DAILY = "25"
 BOT_OPTIN_PER_RUN = "6"
+# A thread an opted-in person is still writing is weighed only once its last post is this many minutes old.
+BOT_OPTIN_SETTLE_MINUTES = "10"
 # Jason's follows read for links per five-minute run (about 1,570 follows: all of them every ~6.5 hours).
 BOT_SWEEP_PER_TICK = "20"
 # Web searches for fact-checks per UTC day ($0.01 each, inside BOT_DAILY_BUDGET_USD). "0" turns search off.

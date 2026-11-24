@@ -12,6 +12,7 @@ import { obj } from './model.js'
 import { REFLECTION_FIELDS, REFLECTION_RULES, writeLog, memoryNote } from './log.js'
 import { factCheck, checkNote, sitesOf } from './factcheck.js'
 import { BudgetError } from './model.js'
+import { acquaintanceNote } from './acquaint.js'
 
 const ALLOWED_LINK = /^https:\/\/(autonomist\.jason-edelman\.org|power-explained\.jason-edelman\.org)(\/|$)/
 
@@ -150,7 +151,8 @@ export async function runReplies({ env, kv, api, model, day, now = new Date() })
           const note = journal ? `\n\nThe thread starts from your journal entry "${journal.title}" (${journal.url}). Its summary: ${journal.summary} Its question: ${journal.question}` : ''
           const situation = n.reason === 'mention' ? 'The last post mentions you: answer it.' : 'The last post replies directly to your post: answer if it speaks to you or asks you something; otherwise join in only if you have something to contribute, or listen.'
           const exclude = [...(lines.sites || []), ...(journal?.source ? sitesOf([{ record: { text: journal.source } }]) : [])]
-          const { out, data: last, check } = await decide({ env, kv, model, day, exclude, user: `THREAD (oldest first)\n${lines.join('\n')}${note}${mem}\n\n${situation}` })
+          const known = await acquaintanceNote(kv, n.author?.did, n.author?.handle)
+          const { out, data: last, check } = await decide({ env, kv, model, day, exclude, user: `THREAD (oldest first)\n${lines.join('\n')}${note}${known}${mem}\n\n${situation}` })
           if (!out || out.pass) {
             await kv.put(`answered:${n.uri}`, out?.pass === 'listen' ? 'listened' : 'skip', { expirationTtl: 30 * 86400 })
             done.push({ uri: n.uri, [out?.pass === 'listen' ? 'listened' : 'skipped']: out?.why || 'no acceptable reply' })

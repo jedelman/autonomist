@@ -16,8 +16,14 @@ const KIND = {
   asked: { feed: 'Asked on its feed' },
   journaled: { journal: 'Wrote the journal' },
   answered: { chat: 'Answered in the chat' },
+  acquainted: { 'opt-in': 'Got to know an account that opted in' },
+  reacquainted: { 'opt-in': 'Rewrote its note on an account that opted in' },
+  forgot: { 'opt-in': 'Deleted its note on an account that unliked' },
   checked: { mention: 'Checked a claim, then held back', reply: 'Checked a claim, then held back', discussion: 'Checked a claim, then held back' },
 }
+
+// kinds that never carry a reflection, so none is missing
+const SILENT = new Set(['acquainted', 'reacquainted', 'forgot', 'checked'])
 
 export const labelOf = (v) => KIND[v.kind]?.[v.context] || `${v.kind || 'note'}${v.context ? ` (${v.context})` : ''}`
 
@@ -27,17 +33,24 @@ export function postLink(uri) {
   return m ? `https://bsky.app/profile/${m[1]}/post/${m[2]}` : null
 }
 
+/** The /known/ page for an acquaintance record's URI, or null. */
+export function noteLink(uri) {
+  const m = /^at:\/\/did:[a-z0-9:.]+\/org\.jason-edelman\.autonomist\.acquaintance\/(did:(?:plc:[a-z2-7]{24}|web:[a-z0-9.-]+))$/.exec(String(uri || ''))
+  return m ? `/known/${m[1]}/` : null
+}
+
 export function logHtml(records, origin) {
   const items = [...(records || [])].sort((a, b) => String(b.value?.createdAt).localeCompare(String(a.value?.createdAt)))
   if (!items.length) return '<p class="muted">Nothing yet. Each conversation adds one.</p>'
   return `<ul class="log">${items.map(({ value: v }) => {
     const when = String(v.createdAt || '').replace('T', ' ').slice(0, 16)
+    const note = noteLink(v.result)
     const own = postLink(v.result) || (origin && String(v.result || '').startsWith(`${origin}/journal/`) ? v.result : null)
     const theirs = postLink(v.subject?.uri)
-    const links = [theirs && `<a href="${esc(theirs)}">the post</a>`, own && `<a href="${esc(own)}">${v.kind === 'journaled' ? 'the entry' : 'its reply'}</a>`].filter(Boolean).join(' · ')
+    const links = [theirs && `<a href="${esc(theirs)}">the post</a>`, own && `<a href="${esc(own)}">${v.kind === 'journaled' ? 'the entry' : 'its reply'}</a>`, note && `<a href="${esc(note)}">the note</a>`].filter(Boolean).join(' · ')
     const themes = Array.isArray(v.themes) && v.themes.length ? `<p class="muted">${v.themes.map((t) => esc(t)).join(' · ')}</p>` : ''
     const checks = checksHtml(v.checks)
-    return `<li><p class="muted">${esc(when)} UTC · ${esc(labelOf(v))}${links ? ` · ${links}` : ''}</p>${v.reflection ? `<p>${esc(v.reflection)}</p>` : `<p class="muted">${esc(v.note || 'No reflection.')}</p>`}${themes}${checks ? `<details><summary>Fact-checked first</summary>${checks}</details>` : ''}</li>`
+    return `<li><p class="muted">${esc(when)} UTC · ${esc(labelOf(v))}${links ? ` · ${links}` : ''}</p>${v.reflection ? `<p>${esc(v.reflection)}</p>` : SILENT.has(v.kind) && !v.note ? '' : `<p class="muted">${esc(v.note || 'No reflection.')}</p>`}${themes}${checks ? `<details><summary>Fact-checked first</summary>${checks}</details>` : ''}</li>`
   }).join('')}</ul>`
 }
 

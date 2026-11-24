@@ -6,7 +6,7 @@ import { graphemes, bytes, fits, linkFacets } from '../worker/bot/text.js'
 import { normalizeUrl, linksFromItem, sweep, candidates } from '../worker/bot/sources.js'
 import { checkDraft, runJournal, COLLECTION } from '../worker/bot/journal.js'
 import { runReplies, vetReply } from '../worker/bot/replies.js'
-import { ensurePinned, runOptin, PINNED_TEXT, PROFILE_DESCRIPTION } from '../worker/bot/optin.js'
+import { ensurePinned, runOptin, refreshOptins, PINNED_TEXT, PROFILE_DESCRIPTION } from '../worker/bot/optin.js'
 import { checkQuestion, dueSlot, runQuestion } from '../worker/bot/questions.js'
 import { fetchReadable, numberIn, normalize, readArticle } from '../worker/journal-core.js'
 import { candidateMetadata } from '../worker/bot/sources.js'
@@ -45,7 +45,7 @@ test('text: graphemes, bytes, and link facets by UTF-8 byte range', () => {
 
 test('sources: links from external embeds and facets; reposts, media and social hosts skipped; tracking stripped', () => {
   assert.equal(normalizeUrl('http://x.example/a/?utm_source=bsky&id=3#top'), 'https://x.example/a/?id=3')
-  const item = { post: { uri: 'at://did:plc:a/app.bsky.feed.post/1', author: { handle: 'a.example' }, indexedAt: new Date().toISOString(), embed: { $type: 'app.bsky.embed.external#view', external: { uri: 'https://news.example/story?utm_medium=x', title: 'Story', description: 'D' } }, record: { facets: [{ features: [{ $type: 'app.bsky.richtext.facet#link', uri: 'https://bsky.app/profile/x' }, { $type: 'app.bsky.richtext.facet#link', uri: 'https://img.example/p.jpg' }, { $type: 'app.bsky.richtext.facet#link', uri: 'https://other.example/b' }] }] } } }
+  const item = { post: { uri: 'at://did:plc:a/app.bsky.feed.post/1', author: { handle: 'a.example' }, indexedAt: new Date(Date.now() - 20 * 60e3).toISOString(), embed: { $type: 'app.bsky.embed.external#view', external: { uri: 'https://news.example/story?utm_medium=x', title: 'Story', description: 'D' } }, record: { facets: [{ features: [{ $type: 'app.bsky.richtext.facet#link', uri: 'https://bsky.app/profile/x' }, { $type: 'app.bsky.richtext.facet#link', uri: 'https://img.example/p.jpg' }, { $type: 'app.bsky.richtext.facet#link', uri: 'https://other.example/b' }] }] } } }
   assert.deepEqual(linksFromItem(item).map((l) => l.url), ['https://news.example/story', 'https://other.example/b'])
   assert.deepEqual(linksFromItem({ ...item, reason: { $type: 'app.bsky.feed.defs#reasonRepost' } }), [])
 })
@@ -187,7 +187,7 @@ test('opt-in: the pinned post is made once, pinned, and described; likers get at
   const kv = memoryKV()
   const api = fakeApi({
     likes: [{ actor: { did: 'did:plc:h', handle: 'h.example' } }, { actor: { did: 'did:plc:r', handle: 'r.example', labels: [{ val: 'bot', src: 'did:plc:r' }] } }],
-    feeds: { 'did:plc:h': [{ post: { uri: 'at://did:plc:h/app.bsky.feed.post/1', cid: 'h1', author: { did: 'did:plc:h' }, indexedAt: new Date().toISOString(), record: { text: 'Our landlord raised rent again.' } } }, { post: { uri: 'at://did:plc:h/app.bsky.feed.post/0', cid: 'h0', author: { did: 'did:plc:h' }, indexedAt: new Date().toISOString(), record: { text: 'older' } } }] },
+    feeds: { 'did:plc:h': [{ post: { uri: 'at://did:plc:h/app.bsky.feed.post/1', cid: 'h1', author: { did: 'did:plc:h' }, indexedAt: new Date(Date.now() - 20 * 60e3).toISOString(), record: { text: 'Our landlord raised rent again.' } } }, { post: { uri: 'at://did:plc:h/app.bsky.feed.post/0', cid: 'h0', author: { did: 'did:plc:h' }, indexedAt: new Date(Date.now() - 20 * 60e3).toISOString(), record: { text: 'older' } } }] },
   })
   assert.ok(graphemes(PINNED_TEXT) <= 300 && graphemes(PROFILE_DESCRIPTION) <= 256)
   const p = await ensurePinned({ kv, api })
@@ -198,8 +198,10 @@ test('opt-in: the pinned post is made once, pinned, and described; likers get at
   assert.equal(prof.displayName, 'autonomist')
   assert.deepEqual(await ensurePinned({ kv, api }), { pinned: 'known' })
   const model = { structured: async () => ({ data: { action: 'reply', text: 'Who else in your building got that notice?', why: '' } }) }
+  assert.equal((await refreshOptins({ kv, api, me: 'did:plc:me' })).optedIn, 2)
+  // no home feed in this fake: it falls back to each person's own feed
   const r = await runOptin({ env: {}, kv, api, model, day: '2026-11-24' })
-  assert.equal(r.optedIn, 2)
+  assert.equal(r.source, 'their feeds')
   assert.equal(r.replied, 1)
   assert.equal(api.posts.at(-1).reply.parent.uri, 'at://did:plc:h/app.bsky.feed.post/1')
   const again = await runOptin({ env: {}, kv, api, model, day: '2026-11-24' })
@@ -349,11 +351,12 @@ test('review 4: a post that mentions autonomist and is seen by the opt-in sweep 
   const api = fakeApi({
     notifications: [{ uri: postUri, cid: 'h1', reason: 'mention', indexedAt: '2026-11-24T00:01:00.000Z', author: { did: 'did:plc:h', handle: 'h.example' }, record: { text: '@autonomist rent again' } }],
     likes: [{ actor: { did: 'did:plc:h', handle: 'h.example' } }],
-    feeds: { 'did:plc:h': [{ post: { uri: postUri, cid: 'h1', author: { did: 'did:plc:h' }, indexedAt: new Date().toISOString(), record: { text: '@autonomist rent again' } } }] },
+    feeds: { 'did:plc:h': [{ post: { uri: postUri, cid: 'h1', author: { did: 'did:plc:h' }, indexedAt: new Date(Date.now() - 20 * 60e3).toISOString(), record: { text: '@autonomist rent again' } } }] },
   })
   await kv.put('bot:pinned', JSON.stringify({ uri: 'at://did:plc:me/app.bsky.feed.post/p', cid: 'p' }))
   const model = { structured: async () => ({ data: { action: 'reply', text: 'Who else got that notice?', why: '' } }) }
   await runReplies({ env: {}, kv, api, model, day: '2026-11-24' })
+  await refreshOptins({ kv, api, me: 'did:plc:me' })
   await runOptin({ env: {}, kv, api, model, day: '2026-11-24' })
   assert.equal(api.posts.filter((p) => p.reply?.parent?.uri === postUri).length, 1)
 })

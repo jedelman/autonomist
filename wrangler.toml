@@ -44,7 +44,9 @@ MAX_STEPS = "6"
 MAX_TOKENS = "8000"
 # Questions per invite per UTC day, and the whole site's model spend per UTC day (USD).
 PER_INVITE_DAILY = "30"
-DAILY_BUDGET_USD = "3"
+# Raised from 3 on 2026-11-24 (Jason: "bump the limits since we're running Haiku"): the bot's share below grew,
+# and the chat keeps at least the old 3.
+DAILY_BUDGET_USD = "6"
 # Outside requests (the data portal) per answer.
 SUBREQUEST_BUDGET = "40"
 # The chat is invite-only unless this is "false".
@@ -63,20 +65,36 @@ BOT_SOURCE_ACTOR = "jason-edelman.org"
 BOT_JOURNAL_HOUR_UTC = "13"
 # Problem-posing questions on its own feed, one at each of these UTC hours (16, 20 = 11 AM, 3 PM New York in winter).
 BOT_QUESTION_HOURS_UTC = "16,20"
+# Limits raised 2026-11-24 (Jason: "It would be nice to bump the limits since we're running Haiku"). On its first
+# day the bot spent about $0.0006 a call; web search is the dear part, at $0.01 a search whatever the model.
+# The social limits stay: one journal entry and two feed questions a day, at most one question a day to each
+# opted-in person, 8 replies a thread a day (2 with bots), BOT_REPLIES_DAILY in all.
 # The bot's own model spend per UTC day (USD), inside the site's DAILY_BUDGET_USD.
-BOT_DAILY_BUDGET_USD = "1"
-BOT_REPLIES_PER_TICK = "6"
+BOT_DAILY_BUDGET_USD = "3"
+BOT_REPLIES_PER_TICK = "10"
 BOT_REPLIES_DAILY = "150"
-BOT_OPTIN_DAILY = "10"
-BOT_OPTIN_PER_RUN = "20"
-BOT_SWEEP_PER_TICK = "8"
+# Discussion threads under its own posts weighed per five-minute run.
+BOT_DISCUSS_PER_RUN = "8"
+# Questions on opted-in people's posts: in all per UTC day, and posts weighed per five-minute run.
+BOT_OPTIN_DAILY = "25"
+BOT_OPTIN_PER_RUN = "6"
+# A thread an opted-in person is still writing is weighed only once its last post is this many minutes old.
+BOT_OPTIN_SETTLE_MINUTES = "10"
+# Jason's follows read for links per five-minute run (about 1,570 follows: all of them every ~6.5 hours).
+BOT_SWEEP_PER_TICK = "20"
 # Web searches for fact-checks per UTC day ($0.01 each, inside BOT_DAILY_BUDGET_USD). "0" turns search off.
-BOT_SEARCHES_DAILY = "30"
+BOT_SEARCHES_DAILY = "60"
 # Fact-checks in one cron run (each up to three searches and six page reads, read in parallel).
-BOT_CHECKS_PER_RUN = "3"
-# Notes written or refreshed per hourly run, on the people who like the pinned post (acquaint.js).
-BOT_ACQUAINT_PER_RUN = "3"
-
+BOT_CHECKS_PER_RUN = "5"
+# The notes on the people who like the pinned post (acquaint.js; Jason, 2026-11-24: "it should rerun
+# periodically; and let's have it grab 1000 items from the repo"). Records read from each person's repository
+# (half their own posts, then likes, then reposts); notes written per hourly run (each read takes ~30s, and the
+# 13:07 run also writes the journal); a note is rewritten every EVERY_HOURS if they've posted since, after six
+# hours once they've posted AFTER_POSTS, and at least weekly.
+BOT_ACQUAINT_ITEMS = "1000"
+BOT_ACQUAINT_PER_RUN = "5"
+BOT_ACQUAINT_EVERY_HOURS = "24"
+BOT_ACQUAINT_AFTER_POSTS = "20"
 # Storage for invites, the access-request list, limits, spend, saved results and case-study
 # proposals. Created by Jason 2026-11-20. Without it the site still serves pages, but the chat
 # refuses (it fails closed).

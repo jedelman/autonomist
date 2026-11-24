@@ -63,6 +63,8 @@ BOT_HANDLE = "autonomist.jason-edelman.org"
 BOT_SOURCE_ACTOR = "jason-edelman.org"
 # The journal is written from this UTC hour on (13 = 8 AM New York in winter), once a day.
 BOT_JOURNAL_HOUR_UTC = "13"
+# Its daily dream, from this UTC hour on (7 = 2 AM New York in winter; dream.js).
+BOT_DREAM_HOUR_UTC = "7"
 # Problem-posing questions on its own feed, one at each of these UTC hours (16, 20 = 11 AM, 3 PM New York in winter).
 BOT_QUESTION_HOURS_UTC = "16,20"
 # Limits raised 2026-11-24 (Jason: "It would be nice to bump the limits since we're running Haiku"). On its first

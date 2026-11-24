@@ -115,30 +115,53 @@ Rules:
 
 export const FOLD_SCHEMA = obj({ memory: { type: 'string' } })
 
-/** Checks the memory text: the same rules as reflections, at notebook length. */
-export function cleanMemory(text) {
+/** What's wrong with a memory text, if anything: the same rules as reflections, at notebook length. */
+export function memoryProblems(text) {
   const t = String(text || '').trim()
-  if (!t || t.length > 6000) return null
-  if (/@[a-z0-9-]+(\.[a-z0-9-]+)+/i.test(t) || /https?:\/\/|www\./i.test(t) || /["“”‘«»„＂]/.test(t) || extractNumbers(t).length || hasControlChars(t)) return null
-  return t
+  const p = []
+  if (!t) p.push('it is empty')
+  if (t.length > 6000) p.push('it is longer than 6,000 characters')
+  if (/@[a-z0-9-]+(\.[a-z0-9-]+)+/i.test(t)) p.push('it has a handle')
+  if (/https?:\/\/|www\./i.test(t)) p.push('it has a link')
+  if (/["“”‘«»„＂]/.test(t)) p.push('it has quotation marks')
+  const n = extractNumbers(t)
+  if (n.length) p.push(`it has figures (${n.slice(0, 5).join(', ')})`)
+  if (hasControlChars(t)) p.push('it has control characters')
+  return p
 }
+
+/** Checks the memory text. Returns it, or null when it fails. */
+export function cleanMemory(text) {
+  return memoryProblems(text).length ? null : String(text).trim()
+}
+
+// Figures stay out of the fold's input: a fact-check's claim can carry them ("22 states"), and the memory may not.
+const noFigures = (t) => String(t).replace(/\$?\d[\d,.]*(\s?(%|percent|million|billion|thousand))?/gi, 'some')
 
 /** Folds the reflections logged since the last fold into a new memory record. */
 export async function foldMemory({ kv, api, model }) {
   const s = await api.session()
   const prev = (await kv.get('bot:memory', 'json')) || { text: '', through: '' }
+  // a dream not yet taken into the memory (dream.js) is folded in once
+  const pending = await kv.get('bot:dream:unfolded', 'json')
+  const dream = pending?.text || ''
   const r = await api.call('GET', 'com.atproto.repo.listRecords', { params: { repo: s.did, collection: LOG, limit: 100 } })
   const fresh = (r.records || []).filter((x) => (x.value?.reflection || x.value?.checks?.length) && String(x.value.createdAt) > String(prev.through || '')).sort((a, b) => String(a.value.createdAt).localeCompare(String(b.value.createdAt)))
-  if (!fresh.length) return { folded: 0 }
+  if (!fresh.length && !dream) return { folded: 0 }
   const lines = fresh.map((x) => [
     x.value.reflection ? `- (${x.value.context || x.value.kind}) ${x.value.reflection}${x.value.themes?.length ? ` [${x.value.themes.join(', ')}]` : ''}` : '',
-    ...(x.value.checks || []).map((c) => `- (fact-check) ${c.claim}: ${c.verdict}, from ${c.sources.length} verified source(s)`),
+    ...(x.value.checks || []).map((c) => `- (fact-check) ${noFigures(c.claim)}: ${c.verdict}`),
   ].filter(Boolean).join('\n'))
-  const { data } = await model.structured({ system: FOLD_SYSTEM, user: `YOUR MEMORY SO FAR\n${prev.text || '(empty: this is the first fold)'}\n\nNEW REFLECTIONS (oldest first)\n${lines.join('\n')}`, schema: FOLD_SCHEMA, effort: 'medium', maxTokens: 8000 })
+  const user = `YOUR MEMORY SO FAR\n${prev.text || '(empty: this is the first fold)'}\n\nNEW REFLECTIONS (oldest first)\n${lines.join('\n')}${dream ? `\n\nYOUR LATEST DREAM (a slower reflection you wrote; take in what still matters)\n${dream}` : ''}`
+  let { data } = await model.structured({ system: FOLD_SYSTEM, user, schema: FOLD_SCHEMA, effort: 'medium', maxTokens: 8000 })
+  // one retry, told exactly what failed
+  const problems = memoryProblems(data.memory)
+  if (problems.length) ({ data } = await model.structured({ system: FOLD_SYSTEM, user: `${user}\n\nYOUR LAST DRAFT WAS REFUSED: ${problems.join('; ')}. Write it again within the rules.`, schema: FOLD_SCHEMA, effort: 'medium', maxTokens: 8000 }))
   const text = cleanMemory(data.memory)
-  if (!text) return { folded: 0, withheld: 'the new memory failed the checks; the old one stays' }
-  const through = fresh[fresh.length - 1].value.createdAt
+  if (!text) return { folded: 0, withheld: `the new memory failed the checks (${memoryProblems(data.memory).join('; ')}); the old one stays` }
+  const through = fresh.length ? fresh[fresh.length - 1].value.createdAt : prev.through
   const rec = await api.call('POST', 'com.atproto.repo.createRecord', { body: { repo: s.did, collection: MEMORY, record: { $type: MEMORY, content: text, folded: fresh.length, through, createdAt: new Date().toISOString() } } })
   await kv.put('bot:memory', JSON.stringify({ text, through, uri: rec.uri, at: new Date().toISOString() }))
+  if (dream) await kv.delete('bot:dream:unfolded').catch(() => {})
   return { folded: fresh.length, uri: rec.uri }
 }

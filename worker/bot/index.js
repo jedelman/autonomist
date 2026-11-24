@@ -15,6 +15,8 @@ import { runAcquaint } from './acquaint.js'
 import { runQuestion } from './questions.js'
 import { runDiscussions } from './threads.js'
 import { drainChatReflections, foldMemory } from './log.js'
+import { runDream } from './dream.js'
+import { recheckEntries } from './journal.js'
 import { setting } from '../limits.js'
 import firstEntry from '../../content/journal/2026-11-23-piketty-global-justice.md'
 import { frontMatter } from '../journal-core.js'
@@ -68,6 +70,10 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
     await step('acquaint', () => runAcquaint({ env, kv, api, model }))
     if (now.getUTCHours() >= setting(env.BOT_JOURNAL_HOUR_UTC, 13, { min: 0, max: 23 })) await step('journal', () => runJournal({ env, kv, api, model, day, example: EXAMPLE }))
     await step('question', () => runQuestion({ env, kv, api, model, day, now }))
+    // fact-checks made by an older checker are redone, one entry a run
+    await step('recheck', () => recheckEntries({ env, kv, api, model, day }))
+    // once a day, a slower reflection, folded into the memory right after
+    await step('dream', () => runDream({ env, kv, api, model, day, now }))
     await step('memory', () => foldMemory({ kv, api, model }))
   }
 }

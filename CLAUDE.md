@@ -118,7 +118,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     (`org.jason-edelman.autonomist.memory`, a new record per fold, so every version is kept; `cleanMemory`), which
     only the agent writes, and which every prompt reads back inside the user message: replies, discussions, opt-in,
     questions, the journal, and the chat. Corrections in it are claims, marked confirmed only by one of its own
-    fact-checks, unconfirmed otherwise. Shown at `/thinking/` (`thinking-pages.js`).
+    fact-checks, unconfirmed otherwise. Figures stay out of the fold's input, and a refused draft gets one retry, told
+    why (`memoryProblems`). Shown at `/thinking/` (`thinking-pages.js`).
   - **Fact-checking with web search** (Jason, 2026-11-23: "Yep, let's build it"; on his research-watch rule, "only
     trust independent agreement. attribution over trust."; `factcheck.js`). A reply or discussion turn may name one
     claim to check (`check` in `REPLY_SCHEMA`); the journal names up to two of the article's own (`claims_to_check`,
@@ -128,14 +129,24 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     count for nothing. A source's site is the page actually read, after redirects. Never counted: the sites the thread
     or the article links to (`sitesOf`), autonomist's and Jason's own sites, and Bluesky (`NEVER_SOURCES`). Claims are
     about public matters only, never a private person (the prompt), and `cleanClaim` refuses handles, links and quote
-    marks before anything is searched or published. A separate call labels each kept excerpt supports,
-    contradicts or unclear, and code gives the verdict: confirmed (two independent sites), supported (one), disputed
+    marks before anything is searched or published. A page that repeats the claim's own source word for word (a wire story, a
+    syndicated copy) is the same reporting, not independent (`sourceText`). A separate call labels each kept excerpt
+    supports, contradicts or unclear, where contradicts means the same matter, counted the same way, and incompatible
+    (stricter since the first live entry, 2026-11-24, called two sound claims disputed), and code gives the verdict: confirmed (two independent sites), supported (one), disputed
     (any contradiction), unsettled, unverified. Replies may link one source their check verified, and no other
     outside link. Every check is logged in the run journal (`checks`; kind `checked` when nothing was posted), and the
     journal's are published under the entry ("Checked against other sources", their pages added to `sources`). A
     check that fails leaves the reply or entry unchecked, never unsent or unpublished; when the budget runs out, a
     reply or discussion turn is let go (claim released, cursor kept) and answered once there's budget again. Capped at `BOT_SEARCHES_DAILY` searches a day (0 turns search off), each priced at `SEARCH_USD`, and
-    `BOT_CHECKS_PER_RUN` checks per cron run; searches are reserved in KV before each call (one key per call).
+    `BOT_CHECKS_PER_RUN` checks per cron run; searches are reserved in KV before each call (one key per call). Checks carry `CHECKER_VERSION`; an entry checked by
+    an older checker is rechecked once (`recheckEntries`, hourly, one entry a run, entries under two weeks old), and its
+    page says so and keeps the first verdicts (`checks.superseded`).
+  - **Dreaming** (Jason, 2026-11-24, on learning from Scout, which dreams daily: "and dreaming!"; `dream.js`). Once a
+    day from `BOT_DREAM_HOUR_UTC`, a slower reflection over everything since the last dream (the run journal, counts by
+    kind, the journal entries, the memory, the last dream): a title, a body of a few hundred words, up to three
+    questions it wants to ask, themes. Same rules as reflections (`dreamProblems`, one retry, else withheld and tried
+    again later). Stored as `org.jason-edelman.autonomist.dream`, shown on `/thinking/`, and folded into the memory at
+    the next fold (`bot:dream:unfolded`). No dream on a day with nothing new.
   - **Watching live** (Jason, 2026-11-23: "I wonder if we could even use Jetstream to watch it in realtime").
     `/thinking/` has a live view (`site/js/live.js`): on a click, the visitor's browser opens a WebSocket to Bluesky's
     public Jetstream, filtered to autonomist's DID and its collections, and renders each new record with
@@ -156,6 +167,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     note (`acqnew:<did>`). The pinned post is versioned
     (`PINNED_VERSION`): a new wording is pinned in place of the old, which stays up, unpinned
     (`bot:pinned:previous`). Its likers keep what they agreed to, questions only (`read: false` in `bot:optin`).
+    Since v3 (2026-11-24) the pinned post and profile say that what it reads goes to Anthropic, as Scout's profile
+    does; only v3's likers are read.
   - **Getting to know opt-ins** (Jason, 2026-11-24: "if someone opts in it should read their repo to get to know them
     and get some context"; his calls: a public note, deleted on unlike; read the profile, posts, reposts and likes;
     the pinned post says so; later: "it should rerun periodically; and let's have it grab 1000 items from the repo";

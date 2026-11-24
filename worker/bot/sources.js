@@ -5,6 +5,16 @@
 
 const SKIP_HOSTS = /(^|\.)(bsky\.app|bsky\.social|go\.bsky\.app|bsky\.network|youtube\.com|youtu\.be|tiktok\.com|instagram\.com|x\.com|twitter\.com|facebook\.com|twitch\.tv|spotify\.com|open\.spotify\.com|tenor\.com|giphy\.com)$/i
 const MEDIA = /\.(png|jpe?g|gif|webp|mp4|mov|mp3|pdf)(\?|$)/i
+// Never news: autonomist's own site and posts, and the rest of Jason's (Power Explained, his site, Claude's). Jason
+// follows autonomist, so without this the sweep read its own journal announcement and the 16:07 question on
+// 2026-11-24 was about its own entry, a second post on the same story.
+const OWN_HOSTS = /(^|\.)jason-edelman\.org$/i
+const OWN_HANDLES = /(^|\.)jason-edelman\.org$/i
+
+/** Whether a link is one of autonomist's own or its steward's, which are never news for it. */
+export function isOwn(url) {
+  try { return OWN_HOSTS.test(new URL(url).hostname) } catch { return false }
+}
 const DAY = 86400_000
 
 export function normalizeUrl(u) {
@@ -23,10 +33,12 @@ export function linksFromItem(item) {
   if (item?.reason) return []
   const post = item?.post
   if (!post) return []
+  // autonomist's own posts (and any account on Jason's domain) are never a source of news for it
+  if (OWN_HANDLES.test(post.author?.handle || '') || post.author?.did === 'did:plc:kmswr7d5c55rc4ot2dbn6sfq') return []
   const out = new Map()
   const add = (uri, title = '', description = '') => {
     const url = normalizeUrl(uri)
-    if (!url || MEDIA.test(url) || SKIP_HOSTS.test(new URL(url).hostname)) return
+    if (!url || MEDIA.test(url) || SKIP_HOSTS.test(new URL(url).hostname) || isOwn(url)) return
     if (!out.has(url)) out.set(url, { url, title, description })
   }
   const ext = post.embed?.external || post.embed?.media?.external
@@ -104,7 +116,8 @@ export async function candidates(kv, covered = new Set(), limit = 150) {
   let cursor
   do {
     const page = await kv.list({ prefix: 'cand:', cursor })
-    for (const k of page.keys) if (k.metadata?.u && !covered.has(k.name.slice(5))) out.push({ key: k.name.slice(5), url: k.metadata.u, title: k.metadata.t, description: k.metadata.d, handle: k.metadata.h, post: k.metadata.p, at: k.metadata.at })
+    // candidates stored before the own-links rule are skipped here too
+    for (const k of page.keys) if (k.metadata?.u && !covered.has(k.name.slice(5)) && !isOwn(k.metadata.u) && !OWN_HANDLES.test(k.metadata.h || '')) out.push({ key: k.name.slice(5), url: k.metadata.u, title: k.metadata.t, description: k.metadata.d, handle: k.metadata.h, post: k.metadata.p, at: k.metadata.at })
     cursor = page.list_complete ? undefined : page.cursor
   } while (cursor && out.length < 2000)
   return out.sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, limit)

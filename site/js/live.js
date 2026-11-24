@@ -18,6 +18,8 @@
     acquainted: { 'opt-in': 'Got to know an account that opted in' },
     reacquainted: { 'opt-in': 'Rewrote its note on an account that opted in' },
     forgot: { 'opt-in': 'Deleted its note on an account that unliked' },
+    dreamed: { dream: 'Dreamed' },
+    rechecked: { journal: 'Rechecked a journal entry' },
     checked: { mention: 'Checked a claim, then held back', reply: 'Checked a claim, then held back', discussion: 'Checked a claim, then held back' },
   }
   const VERDICT = { confirmed: 'confirmed', supported: 'supported by one source', disputed: 'disputed', unsettled: 'unsettled', unverified: 'unverified' }
@@ -77,7 +79,8 @@
       if (Array.isArray(v.themes) && v.themes.length) extra.push(v.themes.join(' · '))
       for (const ch of Array.isArray(v.checks) ? v.checks : []) if (VERDICT[ch.verdict]) extra.push(`Fact-checked first: ${ch.claim} (${VERDICT[ch.verdict]})`)
       const note = /\/org\.jason-edelman\.autonomist\.acquaintance\/(did:(?:plc:[a-z2-7]{24}|web:[a-z0-9.-]+))$/.exec(String(v.result || ''))
-      add(label, v.reflection || v.note || (note ? '' : 'No reflection.'), extra, note ? `/known/${note[1]}/` : null, 'the note', when)
+      const dreamt = /\/org\.jason-edelman\.autonomist\.dream\//.test(String(v.result || ''))
+      add(label, v.reflection || v.note || (note || dreamt || v.kind === 'rechecked' ? '' : 'No reflection.'), extra, note ? `/known/${note[1]}/` : dreamt ? '/thinking/#thinking-dreams' : null, note ? 'the note' : 'the dream', when)
     } else if (c.collection === `${NS}memory`) {
       add('Folded its memory', `${Number(v.folded) || 0} new reflections folded in.`, [], '/thinking/', 'reload to read it', when)
     } else if (c.collection === `${NS}journal`) {

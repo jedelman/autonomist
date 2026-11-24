@@ -9,7 +9,7 @@ import { graphemes, fits } from './text.js'
 import { obj } from './model.js'
 import { rememberRoot } from './threads.js'
 import { REFLECTION_FIELDS, REFLECTION_RULES, writeLog, memoryNote } from './log.js'
-import { factCheck, siteOf } from './factcheck.js'
+import { factCheck, siteOf, CHECKER_VERSION } from './factcheck.js'
 
 export const COLLECTION = 'org.jason-edelman.autonomist.journal'
 const PE = 'https://power-explained.jason-edelman.org'
@@ -67,9 +67,9 @@ export async function checkClaims({ env, kv, model, day, draft, article, fetch: 
   if (!model.search) return out
   for (const claim of claimsToCheck(draft, article)) {
     try {
-      const c = await factCheckFn({ env, kv, model, day, claim, exclude: [siteOf(article.url)], fetch: f })
+      const c = await factCheckFn({ env, kv, model, day, claim, exclude: [siteOf(article.url)], sourceText: `${article.title}\n${article.text}`, fetch: f })
       if (!c) break
-      out.push({ claim: c.claim, verdict: c.verdict, sources: c.sources.map((x) => ({ url: x.url, title: x.title, quote: x.quote, stance: x.stance })) })
+      out.push({ claim: c.claim, verdict: c.verdict, sources: c.sources.map((x) => ({ url: x.url, title: x.title, quote: x.quote, stance: x.stance })), ...(c.republished ? { republished: c.republished } : {}) })
     } catch (e) {
       console.log(JSON.stringify({ bot: 'journal', check: 'failed', error: String(e?.message || e).slice(0, 160) }))
       break
@@ -211,7 +211,7 @@ export async function publish({ env, kv, api, day, article, cand, draft, check }
     // every page quoted on the entry page, the fact-checks' included
     sources: [...new Set([article.url, ...check.frameworkUrls, ...(check.claims || []).flatMap((c) => c.sources.map((x) => x.url))])],
     via: cand.post ? { handle: cand.handle, post: cand.post } : undefined,
-    checks: { quotes: check.quotes, figures: check.figures, ...(check.claims?.length ? { claims: check.claims } : {}), at: new Date().toISOString() },
+    checks: { quotes: check.quotes, figures: check.figures, ...(check.claims?.length ? { claims: check.claims, version: CHECKER_VERSION } : {}), at: new Date().toISOString() },
     model: env.MODEL || 'claude-haiku-5-5',
     createdAt: new Date().toISOString(),
   }
@@ -241,4 +241,33 @@ export async function announce({ kv, api, day }) {
   await kv.put(`journal:root:${post.uri}`, JSON.stringify({ slug: a.slug, title: a.title, summary: a.summary, question: a.question, url: a.url, source: a.source }), { expirationTtl: 60 * 86400 })
   await rememberRoot(kv, post, 'journal')
   return { announced: post.uri }
+}
+
+/**
+ * Redoes the fact-checks on recent entries whose checks were made by an older checker (CHECKER_VERSION), and
+ * updates each entry in place, keeping the earlier verdicts on the record (`checks.superseded`) so the correction
+ * shows. One entry a run. The article is read again under robots.txt and Content-Signal; if it can't be, the
+ * entry is left as it is.
+ */
+export async function recheckEntries({ env, kv, api, model, day, fetch: f = fetch, factCheckFn = factCheck, now = Date.now() }) {
+  if (!model.search) return { skipped: 'search is off' }
+  const s = await api.session()
+  const r = await api.call('GET', 'com.atproto.repo.listRecords', { params: { repo: s.did, collection: COLLECTION, limit: 10 } })
+  const due = (r.records || []).find((x) => x.value?.checks?.claims?.length && (x.value.checks.version || 1) < CHECKER_VERSION && now - Date.parse(x.value.createdAt) < 14 * 86400_000)
+  if (!due) return { rechecked: 0 }
+  const v = due.value
+  let article
+  try { article = await fetchArticle(v.source, f, new Map()) } catch (e) { return { skipped: `article unreadable: ${String(e.message).slice(0, 80)}` } }
+  const claims = await checkClaims({ env, kv, model, day, draft: { claims_to_check: v.checks.claims.map((c) => c.claim) }, article, fetch: f, factCheckFn })
+  if (!claims.length) return { skipped: 'no checks could be run' }
+  const superseded = v.checks.claims.map((c) => ({ claim: c.claim, verdict: c.verdict }))
+  const record = {
+    ...v,
+    sources: [...new Set([...(v.sources || []), ...claims.flatMap((c) => c.sources.map((x) => x.url))])],
+    checks: { ...v.checks, claims, version: CHECKER_VERSION, rechecked: new Date(now).toISOString(), superseded: [...(v.checks.superseded || []), ...superseded] },
+  }
+  const rkey = due.uri.split('/').pop()
+  await api.call('POST', 'com.atproto.repo.putRecord', { body: { repo: s.did, collection: COLLECTION, rkey, record: JSON.parse(JSON.stringify(record)) } })
+  await writeLog(api, { kind: 'rechecked', context: 'journal', source: v.source, result: `${(env.PUBLIC_ORIGIN || 'https://autonomist.jason-edelman.org').replace(/\/$/, '')}/journal/${rkey}/`, checks: claims })
+  return { rechecked: rkey, verdicts: claims.map((c) => c.verdict) }
 }

@@ -96,16 +96,23 @@ export function client(env, { pdsFetch, kv, fetch: f = fetch, now = () => Date.n
 
   /**
    * Publishes a post from autonomist's account. `links` in the text become clickable; `card` ({ uri, title,
-   * description }) attaches a link card instead, leaving the text's room for the words. Nothing is ever an @mention.
+   * description }) attaches a link card instead, leaving the text's room for the words. `lang` tags the post with
+   * the language it's written in (English unless given). Nothing is ever an @mention.
    */
-  async function post({ text, links = [], reply, card }) {
+  async function post({ text, links = [], reply, card, lang }) {
     if (!fits(text)) throw new Error('post too long')
     const s = await session()
     const facets = linkFacets(text, links)
     const embed = card?.uri ? { $type: 'app.bsky.embed.external', external: { uri: card.uri, title: String(card.title || '').slice(0, 300), description: String(card.description || '').slice(0, 1000) } } : null
-    const record = { $type: 'app.bsky.feed.post', text, createdAt: new Date(now()).toISOString(), langs: ['en'], ...(facets.length ? { facets } : {}), ...(reply ? { reply } : {}), ...(embed ? { embed } : {}) }
+    const record = { $type: 'app.bsky.feed.post', text, createdAt: new Date(now()).toISOString(), langs: [cleanLang(lang)], ...(facets.length ? { facets } : {}), ...(reply ? { reply } : {}), ...(embed ? { embed } : {}) }
     return call('POST', 'com.atproto.repo.createRecord', { body: { repo: s.did, collection: 'app.bsky.feed.post', record } })
   }
 
   return { raw, session, call, pub, post }
+}
+
+/** A language tag for a post: a plain BCP-47 code ("en", "ja", "pt-BR"), or English. */
+export function cleanLang(lang) {
+  const l = String(lang || '').trim()
+  return /^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}$/.test(l) ? l : 'en'
 }

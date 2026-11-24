@@ -9,7 +9,8 @@ import { structured, searchCall } from './model.js'
 import { refreshFollows, sweep } from './sources.js'
 import { runJournal } from './journal.js'
 import { runReplies } from './replies.js'
-import { ensurePinned, runOptin } from './optin.js'
+import { ensurePinned, refreshOptins, runOptin } from './optin.js'
+import { runAcquaint } from './acquaint.js'
 import { runQuestion } from './questions.js'
 import { runDiscussions } from './threads.js'
 import { drainChatReflections, foldMemory } from './log.js'
@@ -58,7 +59,10 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
   if (hourly) {
     const follows = await kv.get('bot:follows', 'json')
     if (!follows || Date.now() - follows.at > 86400_000) await step('follows', () => refreshFollows(api, kv, env.BOT_SOURCE_ACTOR || 'jason-edelman.org'))
-    await step('optin', () => runOptin({ env, kv, api, model, day, now }))
+    // likes first, then the notes (so a new opt-in is known before any question to them), then the questions
+    await step('optins', async () => refreshOptins({ kv, api, me: (await api.session()).did }))
+    await step('acquaint', () => runAcquaint({ env, kv, api, model }))
+    await step('optin', () => runOptin({ env, kv, api, model, day, now, refresh: false }))
     if (now.getUTCHours() >= setting(env.BOT_JOURNAL_HOUR_UTC, 13, { min: 0, max: 23 })) await step('journal', () => runJournal({ env, kv, api, model, day, example: EXAMPLE }))
     await step('question', () => runQuestion({ env, kv, api, model, day, now }))
     await step('memory', () => foldMemory({ kv, api, model }))

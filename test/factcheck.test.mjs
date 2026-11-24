@@ -242,3 +242,38 @@ test('review: every page quoted on an entry page, the checks included, is in its
   assert.deepEqual(puts[0].sources, ['https://src.example/article', 'https://power-explained.jason-edelman.org/x/', 'https://gov.example/minutes'])
   assert.equal(puts[0].checks.claims[0].verdict, 'supported')
 })
+
+test('language: a reply goes out in the language of the post it answers, tagged with it', async () => {
+  const { cleanLang } = await import('../worker/bot/atproto.js')
+  assert.deepEqual(['ja', 'pt-BR', 'en', 'zh-Hant-TW', 'EN', 'ja; drop table', '', undefined].map(cleanLang), ['ja', 'pt-BR', 'en', 'zh-Hant-TW', 'en', 'en', 'en', 'en'])
+  const kv = memoryKV()
+  await kv.put('bot:notif:seen', '2026-11-24T00:00:00.000Z')
+  const api = repliesApi()
+  const notif = { ...replyNotif, uri: 'at://did:plc:u/app.bsky.feed.post/ja', record: { text: '家賃がまた上がった。どうすればいい？', langs: ['ja'] } }
+  api.call = async function (method, nsid, opts) {
+    if (nsid === 'app.bsky.notification.listNotifications') return { notifications: [notif] }
+    if (nsid === 'com.atproto.repo.createRecord') return { uri: 'at://did:plc:me/log/1' }
+    return {}
+  }
+  let prompt = ''
+  const model = { structured: async ({ user }) => { prompt = user; return { data: { action: 'reply', text: 'あなたの建物の持ち主は誰ですか？', why: '', check: '', lang: 'ja', reflection: '', themes: [] } } } }
+  await runReplies({ env: {}, kv, api, model, day: '2026-11-24' })
+  assert.ok(prompt.includes("language tags: ja"))
+  assert.equal(api.posts[0].lang, 'ja')
+  assert.equal(api.posts[0].text, 'あなたの建物の持ち主は誰ですか？')
+})
+
+test('language: the post record is tagged with the language given, English by default', async () => {
+  const { client } = await import('../worker/bot/atproto.js')
+  const bodies = []
+  const jwt = `x.${btoa(JSON.stringify({ exp: Date.now() / 1000 + 7200 })).replace(/=+$/, '')}.y`
+  const pdsFetch = async (req) => {
+    const nsid = new URL(req.url).pathname.split('/').pop()
+    if (nsid === 'com.atproto.repo.createRecord') bodies.push(await req.json())
+    return Response.json(nsid.includes('Session') ? { did: 'did:plc:me', handle: 'me', accessJwt: jwt, refreshJwt: jwt } : { uri: 'at://did:plc:me/app.bsky.feed.post/1', cid: 'c' })
+  }
+  const api = client({ HOSTNAME: 'pds.example', PDS_PASSWORD: 'p' }, { pdsFetch, kv: memoryKV() })
+  await api.post({ text: 'その建物の持ち主は誰ですか？', lang: 'ja' })
+  await api.post({ text: 'Who owns your building?' })
+  assert.deepEqual(bodies.map((b) => b.record.langs), [['ja'], ['en']])
+})

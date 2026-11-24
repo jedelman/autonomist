@@ -8,6 +8,7 @@ import { setting } from '../limits.js'
 import { decide, checkForLog, claim, bump, isBot, threadKeyFor } from './replies.js'
 import { sitesOf } from './factcheck.js'
 import { BudgetError } from './model.js'
+import { acquaintanceNote } from './acquaint.js'
 import { writeLog, memoryNote } from './log.js'
 
 const DAY = 86400_000
@@ -71,7 +72,8 @@ export async function runDiscussions({ env, kv, api, model, day, now = new Date(
       const journal = await kv.get(`journal:root:${root.uri}`, 'json')
       const note = journal ? `\n\nThe thread starts from your journal entry "${journal.title}" (${journal.url}). Its summary: ${journal.summary} Its question: ${journal.question}` : ''
       const earlier = fresh.slice(0, -1).map((f) => lineOf(f.post, me))
-      const user = `THREAD under your own post, from your post down to the latest turn (oldest first)\n${latest.path.map((p) => lineOf(p, me)).join('\n')}${earlier.length ? `\n\nOther new turns elsewhere in the thread:\n${earlier.join('\n')}` : ''}${note}${mem}\n\nPeople are talking with each other here, not to you. Join in only if you have something to contribute; otherwise listen.`
+      const known = await acquaintanceNote(kv, latest.post.author?.did, latest.post.author?.handle)
+      const user = `THREAD under your own post, from your post down to the latest turn (oldest first)\n${latest.path.map((p) => lineOf(p, me)).join('\n')}${earlier.length ? `\n\nOther new turns elsewhere in the thread:\n${earlier.join('\n')}` : ''}${note}${known}${mem}\n\nPeople are talking with each other here, not to you. Join in only if you have something to contribute; otherwise listen.${(latest.post.record?.langs || []).length ? ` (The latest turn's language tags: ${latest.post.record.langs.filter((x) => typeof x === 'string').slice(0, 3).join(', ')}.)` : ''}`
       const exclude = [...sitesOf([...latest.path, ...fresh.map((f) => f.post)]), ...(journal?.source ? sitesOf([{ record: { text: journal.source } }]) : [])]
       let decided
       try {
@@ -91,7 +93,7 @@ export async function runDiscussions({ env, kv, api, model, day, now = new Date(
         continue
       }
       const parent = { uri: latest.post.uri, cid: latest.post.cid }
-      const posted = await api.post({ text: v.text, links: v.links, reply: { root: { uri: root.uri, cid: root.cid }, parent } })
+      const posted = await api.post({ text: v.text, links: v.links, lang: v.lang, reply: { root: { uri: root.uri, cid: root.cid }, parent } })
       await kv.put(`answered:${latest.post.uri}`, posted.uri, { expirationTtl: 30 * 86400 })
       await bump(kv, threadKey)
       await bump(kv, `bot:replies:${day}`)

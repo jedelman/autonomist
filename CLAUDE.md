@@ -104,12 +104,15 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     answer (`replies.js`). Under its own posts, each new turn gets a judgment, join in or listen: direct replies via
     notifications (`replies.js`), people talking with each other by reading its recent threads (`threads.js`, the
     latest new turn per thread, `BOT_DISCUSS_PER_RUN`). One answer per post; at most 8 a thread a day, 2 with
-    self-labeled bots, `BOT_REPLIES_DAILY` in all; "skip" for spam or abuse.
+    self-labeled bots, `BOT_REPLIES_DAILY` in all; "skip" for spam or abuse. Replies and opt-in questions go out in
+    the language of the post they answer, and the post is tagged with it (Jason, 2026-11-24: "Let's fix the prompt so
+    autonomist can reply in the same language!"; `LANGUAGE_RULES`, `cleanLang`). The run journal stays in English;
+    its own posts (the pinned post, questions, the journal) are in English.
   - **The run journal and the community memory** (Jason, 2026-11-23: "Chat feeds it too. ... let's write a continuous
     run journal to the atproto repo, and have every interaction end with a reflection. Thinking in public, similar to
     comind."; `log.js`). Every interaction (a reply, a decision to listen, a question, a journal entry, a chat answer)
     writes an `org.jason-edelman.autonomist.log` record: what happened, written by code, and the model's reflection
-    and themes. Reflections are about conversations, never people: no names, handles, quotes, figures or links
+    and themes. Reflections are about conversations, never people (the one exception is the opt-in notes below): no names, handles, quotes, figures or links
     (`cleanReflection`; a failing one is withheld, the record still written). Chat answers are queued in KV
     (`reflect:*`) and reflected on by the bot. Hourly, new reflections fold into the community memory
     (`org.jason-edelman.autonomist.memory`, a new record per fold, so every version is kept; `cleanMemory`), which
@@ -140,7 +143,20 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     `thinking-pages.js` adds exactly the four Jetstream hosts, for that page only (tested against live.js's list).
     It connects only when asked, because the visitor's IP address reaches Bluesky.
   - **Opt-in** (`optin.js`): the accounts that like the pinned post may get a reply on their own posts, at most one a
-    day each and `BOT_OPTIN_DAILY` in all. Unliking ends it at the next hourly refresh.
+    day each and `BOT_OPTIN_DAILY` in all. Unliking ends it at the next hourly refresh. The pinned post is versioned
+    (`PINNED_VERSION`): a new wording is pinned in place of the old, which stays up, unpinned
+    (`bot:pinned:previous`). Its likers keep what they agreed to, questions only (`read: false` in `bot:optin`).
+  - **Getting to know opt-ins** (Jason, 2026-11-24: "if someone opts in it should read their repo to get to know them
+    and get some context"; his calls: a public note, deleted on unlike; read the profile, posts, reposts and likes;
+    the pinned post says so; `acquaint.js`). Hourly, for each account that likes the *current* pinned post: read its
+    profile, recent posts and reposts (app view) and recent likes (its own repository, via its DID document), and
+    write or refresh (weekly) an `org.jason-edelman.autonomist.acquaintance` record keyed by its DID, shown at
+    `/known/<handle>/` (`known-pages.js`; noindex). The note is read back before replying to that person (opt-in,
+    replies, discussions). It's the one place autonomist writes about a person, so: about what they post about, never
+    who they are, written to them in the second person; `cleanAcquaintance` withholds a note with their name or
+    handle, a quote, a figure, a link or a sensitive identity term (topics are kept). Never read: follows, lists,
+    blocks. Unliking deletes the note at the next refresh, but only from a complete, fresh list of likes. Logs record
+    that it happened (`acquainted`, `reacquainted`, `forgot`) and never who unliked. `BOT_ACQUAINT_PER_RUN` caps it.
   - **Never:** follow, like, repost, DM, @-mention (no mention facets), or reply unasked to anyone who hasn't opted
     in. Replies link only to this site, Power Explained, or one source their own fact-check verified; a question post
     carries only the article it's about, as a link card.

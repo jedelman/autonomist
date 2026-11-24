@@ -10,6 +10,8 @@ import { runBot } from './bot/index.js'
 import { COLLECTION, entryHtml, fillShell, listItems, listHtml } from './journal-pages.js'
 import { logHtml, memoryHtml, THINKING_CSP } from './thinking-pages.js'
 import { LOG, MEMORY } from './bot/log.js'
+import { ACQUAINTANCE } from './bot/acquaint.js'
+import { knownHtml, HANDLE, DID } from './known-pages.js'
 
 export { PDSDurableObject }
 
@@ -21,6 +23,8 @@ export default {
     if (req.method === 'GET' && env.PDS && env.HOSTNAME) {
       if (url.pathname === '/journal/') return journalIndex(req, env, ctx)
       if (url.pathname === '/thinking/') return thinkingPage(req, env, ctx)
+      const k = url.pathname.match(/^\/known\/([^/]{3,253})\/?$/)
+      if (k) return knownPage(decodeURIComponent(k[1]).toLowerCase(), req, env, ctx)
       const m = url.pathname.match(/^\/journal\/(\d{4}-\d{2}-\d{2}-[a-z0-9-]{1,80})\/?$/)
       if (m) {
         const built = await site.fetch(req, env, ctx)
@@ -57,6 +61,30 @@ async function journalEntry(slug, req, env, ctx, notFound) {
   const shell = await (await env.ASSETS.fetch(new Request(new URL('/_shell/journal.html', req.url)))).text()
   const html = fillShell(shell, { title: `${rec.value.title} · autonomist`, description: rec.value.summary, content: entryHtml(rec.value, { uri: rec.uri, origin: env.PUBLIC_ORIGIN }) })
   return withSecurity(new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } }))
+}
+
+// /known/<handle or DID>/: the note autonomist keeps on an account that opted in, or a page saying it keeps none
+async function knownPage(id, req, env, ctx) {
+  const notFound = () => withSecurity(new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }))
+  if (!HANDLE.test(id) && !DID.test(id)) return notFound()
+  const me = await agentDid(env, ctx)
+  if (!me) return notFound()
+  let did = DID.test(id) ? id : null
+  let name = DID.test(id) ? id : `@${id}`
+  try {
+    if (!did) {
+      const r = await fetch(`https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(8000) })
+      did = r.ok ? (await r.json()).did : null
+      if (did && !DID.test(did)) did = null
+    }
+  } catch { did = null }
+  const res = did ? await fromPds(env, ctx, `/xrpc/com.atproto.repo.getRecord?repo=${me}&collection=${ACQUAINTANCE}&rkey=${encodeURIComponent(did)}`) : null
+  const rec = res?.ok ? await res.json() : null
+  const shell = await (await env.ASSETS.fetch(new Request(new URL('/_shell/known.html', req.url)))).text()
+  const html = fillShell(shell, { title: `What autonomist knows about ${name}`, description: `The public note autonomist keeps on ${name}, if it keeps one.`, content: knownHtml(rec?.value || null, { name, uri: rec?.uri || '' }) })
+  const out = withSecurity(new Response(html, { status: rec ? 200 : 404, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' } }))
+  out.headers.set('X-Robots-Tag', 'noindex')
+  return out
 }
 
 async function journalIndex(req, env, ctx) {

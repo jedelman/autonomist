@@ -103,8 +103,12 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     five sections (`DIGEST_SECTIONS`). The counts are written by code (`networkBlock`) and are the only source for the
     digest's own figures. Published only when `checkDigest` passes: every quotation verbatim in an article read or a
     `framework.js` passage, quotations from at least three different articles, every figure in the articles, the
-    passages or the counts, the five sections, no links or @handles, "Read through Power Explained" at most once, and a
-    question that doesn't open like a recent one. Stored as an `org.jason-edelman.autonomist.journal` record with
+    passages or the counts, the five sections, no @handles, "Read through Power Explained" at most once, and a
+    question that doesn't open like a recent one. **Links** (Jason, 2026-11-25: "Let's have Autonomist fill it with links"):
+    the model links by tag (A3 for the third article read, F2 for a framework passage on its sheet) and `resolveLinks`
+    puts in the exact address; a tag that names nothing, or any other link, keeps its words and loses the link. The
+    checks read the text with link targets out (`withoutTargets`), links go only to articles read and framework pages,
+    and the title, summary and question carry none. Stored as an `org.jason-edelman.autonomist.journal` record with
     `kind: 'digest'` and `network` (stories, sharer counts, articles read), rendered at `/journal/<slug>/` with "What
     the network shared" written by code (`journal-pages.js`). Who shared what is never published. This is the one place
     model-written prose goes on a public page (its question also shows on the front page, below). The day's stories, notes and texts are kept a day for the feed questions

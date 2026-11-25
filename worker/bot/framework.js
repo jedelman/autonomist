@@ -25,10 +25,15 @@ export const FRAMEWORK = [
  * The passages as a numbered sheet. Passages used recently (`used`, newest first, from KV framework:used) go last and
  * are marked, so the writing doesn't lean on the same two lines every day.
  */
+/** The passages in the order the sheet shows them (recently used last): F1 is the first. */
+export const frameworkOrder = (used = []) => {
+  const recent = new Set(used.slice(0, 8))
+  return [...FRAMEWORK.filter((p) => !recent.has(p.text)), ...FRAMEWORK.filter((p) => recent.has(p.text))]
+}
+
 export const frameworkSheet = (used = []) => {
   const recent = new Set(used.slice(0, 8))
-  const order = [...FRAMEWORK.filter((p) => !recent.has(p.text)), ...FRAMEWORK.filter((p) => recent.has(p.text))]
-  return order.map((p, i) => `[${i + 1}] ${p.page} (${p.url})${recent.has(p.text) ? ' (used recently: prefer others)' : ''}\n${p.text}`).join('\n\n')
+  return frameworkOrder(used).map((p, i) => `F${i + 1} · ${p.page}${recent.has(p.text) ? ' (used recently: prefer others)' : ''}\n${p.text}`).join('\n\n')
 }
 
 /** Records the passages a published piece quoted, newest first. */

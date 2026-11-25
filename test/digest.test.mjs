@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { memoryKV } from './helpers.mjs'
-import { checkDigest, runDigest, rankStories, chooseArticles, networkBlock, CLUSTER_SCHEMA, NOTE_SCHEMA, DIGEST_SCHEMA } from '../worker/bot/digest.js'
+import { checkDigest, runDigest, rankStories, chooseArticles, networkBlock, resolveLinks, withoutTargets, CLUSTER_SCHEMA, NOTE_SCHEMA, DIGEST_SCHEMA } from '../worker/bot/digest.js'
 import { runQuestion } from '../worker/bot/questions.js'
 import { sweep, candidates, sharerId } from '../worker/bot/sources.js'
 import { cleanReflection, memoryProblems } from '../worker/bot/log.js'
@@ -312,3 +312,56 @@ test('live run, 2026-11-25: runDigest publishes after a cut-off synthesis by try
   assert.deepEqual(calls[0], { effort: 'high', maxTokens: 40000, timeout: 360_000, retries: 0 })
   assert.equal(posts.length, 1)
 })
+
+test('links (Jason, 2026-11-25: "fill it with links"): tags become exact addresses; anything else keeps its words', () => {
+  const arts = [{ url: 'https://a.example/2026/11/25/rents-123456' }, { url: 'https://b.example/x' }]
+  const fw = [{ url: 'https://power-explained.jason-edelman.org/start-here' }]
+  const r = resolveLinks('See [the Herald](A1), [this](A9), [that](https://evil.example/), [PE](F1) and [the Ledger]( a2 ).', { articles: arts, framework: fw })
+  assert.equal(r.text, 'See [the Herald](https://a.example/2026/11/25/rents-123456), this, that, [PE](https://power-explained.jason-edelman.org/start-here) and [the Ledger](https://b.example/x).')
+  assert.deepEqual(r.linked, ['https://a.example/2026/11/25/rents-123456', 'https://power-explained.jason-edelman.org/start-here', 'https://b.example/x'])
+  assert.equal(withoutTargets(r.text), 'See the Herald, this, that, PE and the Ledger.')
+})
+
+test('links: the check reads what a reader reads, so an address\'s digits are never figures; links only to what it read', () => {
+  const linked = articles.map((a, i) => ({ ...a, url: `${a.url}/2026/11/25/story-98765${i}` }))
+  const b = body({ 'The common threads': body().split('## The common threads\n\n')[1].split('\n\n## ')[0].replace('The Herald reports', `[The Herald reports](${linked[0].url})`).replace('the Ledger heard', `[the Ledger heard](${linked[1].url})`) })
+  const ok = checkDigest(draft({ body: b }), { articles: linked, block })
+  assert.deepEqual(ok.problems, [])
+  assert.equal(ok.links, 2)
+  const bad = checkDigest(draft({ body: b.replace(linked[1].url, 'https://elsewhere.example/9999999') }), { articles: linked, block })
+  assert.ok(bad.problems.some((p) => /link not to an article read/.test(p)), bad.problems.join('; '))
+  assert.ok(checkDigest(draft({ body: `${b}\n\nhttps://bare.example/` }), { articles: linked, block }).problems.some((p) => /bare addresses/.test(p)))
+  assert.ok(checkDigest(draft({ body: b, title: `[Rents](${linked[0].url}) frozen` }), { articles: linked, block }).problems.some((p) => /title, summary or question/.test(p)))
+})
+
+test('links: a published digest carries the addresses, and its page shows them as links', async () => {
+  const kv = memoryKV()
+  const now = Date.parse('2026-11-25T13:07:00Z')
+  await seed(kv, now)
+  const puts = []
+  const api = { session: async () => ({ did: 'did:plc:me' }), call: async (m, nsid, o) => { if (nsid === 'com.atproto.repo.putRecord') puts.push(o.body); return { uri: 'at://did:plc:me/log/1' } }, post: async () => ({ uri: 'at://did:plc:me/app.bsky.feed.post/d1', cid: 'c' }) }
+  let prompt = ''
+  const model = {
+    structured: async ({ schema, user }) => {
+      if (schema === CLUSTER_SCHEMA) return { data: { stories: [{ label: 'Rent freezes', items: [0, 1, 2], relevance: 3 }, { label: 'Farmland sales', items: [4], relevance: 2 }, { label: 'A tenant co-op', items: [3], relevance: 3 }] } }
+      if (schema === NOTE_SCHEMA) { const a = Object.values(ARTICLES).find((x) => user.includes(x.title)); return { data: { gist: `Notes on ${a.title}.`, quotes: [a.text.match(/“([^”]+)”/)[1]], themes: [] } } }
+      if (schema === DIGEST_SCHEMA) {
+        prompt = user
+        // the model links by the tags the notes give it
+        const tag = (title) => user.match(new RegExp(`- (A\\d+) · [^:]+: ${title}`))[1]
+        const threads = body().split('## The common threads\n\n')[1].split('\n\n## ')[0].replace('The Herald reports', `[The Herald reports](${tag(ARTICLES['https://a.example/rent'].title)})`).replace('the Ledger heard', `[the Ledger heard](${tag(ARTICLES['https://b.example/rent2'].title)})`)
+        return { data: draft({ body: body({ 'What the network is reading': 'In the last day, 10 accounts that Jason Edelman follows shared 5 links.', 'The common threads': threads }) }) }
+      }
+      throw new Error('unexpected call')
+    },
+  }
+  const r = await runDigest({ env: {}, kv, api, model, day: '2026-11-25', fetch: fetchFake(), now })
+  assert.ok(r.published, JSON.stringify(r))
+  assert.match(prompt, /- A1 · /)
+  assert.match(prompt, /F1 · /)
+  const rec = puts.find((x) => x.collection === 'org.jason-edelman.autonomist.journal').record
+  assert.ok(rec.body.includes('[The Herald reports](https://a.example/rent)') && rec.body.includes('[the Ledger heard](https://b.example/rent2)'), rec.body.slice(0, 600))
+  const html = entryHtml(rec, { uri: 'at://x', origin: 'https://autonomist.jason-edelman.org' })
+  assert.ok(html.includes('<a href="https://a.example/rent"'))
+})
+

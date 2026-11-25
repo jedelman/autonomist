@@ -291,7 +291,8 @@ test('review 6-7: figures must match whole numbers; blockquotes, other quote mar
   assert.ok(bad('\n> Tenants were thrilled.\n').some((p) => p.startsWith('no blockquotes')))
   assert.ok(bad('They said ‘never asked.’').some((p) => p.startsWith('no quote marks')))
   assert.ok(bad('A “private” deal.').some((p) => p.startsWith('a quotation must be at least two words')))
-  assert.ok(bad('[report](/\\evil.example/x)').includes('no links'))
+  // links go only to articles read (since 2026-11-25, by tag); one anywhere else is refused
+  assert.ok(bad('[report](/\\evil.example/x)').some((p) => p.startsWith('link not to an article read')))
   assert.ok(checkQuestion({ framing: 'Rents rose 14 percent, says the report.', question: 'Who owns yours?' }, { texts: [article.text] }).problems.includes('figure not found in any source: 14'))
 })
 

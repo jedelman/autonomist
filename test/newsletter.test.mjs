@@ -1,26 +1,12 @@
 // The digest by email (worker/newsletter.js), through Resend. No network: Resend is a fake that records each call.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { memoryKV, assets } from './helpers.mjs'
+import { memoryKV, strictKV, assets } from './helpers.mjs'
 import { digestEmail, styleEmail, plainText, subscribe, confirm, sendNewsletter, previewToSteward, queueKey, newsletterReady, inboxOf, UNSUBSCRIBE } from '../worker/newsletter.js'
 import { finishPublish } from '../worker/bot/digest.js'
 import { sha256hex } from '../worker/invites.js'
 import worker from '../worker/index.js'
 
-/**
- * KV that holds to Workers KV's limit of one write a second per key: a second write (or delete) to a key throws, as
- * Cloudflare's does ("KV PUT failed: 429"). Time moves only when `clock.t` does (a test's sleep advances it), so any
- * key written twice in one request or run fails the test.
- */
-function strictKV(clock = { t: 0 }) {
-  const kv = memoryKV()
-  const last = new Map()
-  const guard = (k) => {
-    if (last.has(k) && clock.t - last.get(k) < 1000) throw new Error(`KV PUT failed: 429 Too Many Requests (${k})`)
-    last.set(k, clock.t)
-  }
-  return { ...kv, m: kv.m, clock, async put(k, v, o) { guard(k); return kv.put(k, v, o) }, async delete(k) { guard(k); return kv.delete(k) } }
-}
 const env = (extra = {}) => ({ KV: strictKV(), IP_SALT: 'salt', RESEND_API_KEY: 're_test', RESEND_SEGMENT_ID: 'seg-1', NEWSLETTER_FROM: 'autonomist <digest@example.org>', PUBLIC_ORIGIN: 'https://autonomist.test', ...extra })
 const noSleep = async () => {}
 

@@ -8,6 +8,38 @@ import { checksHtml } from './checks-html.js'
 export const COLLECTION = 'org.jason-edelman.autonomist.journal'
 const PE = 'https://power-explained.jason-edelman.org'
 
+// The day's question on the site, linked to its post on Bluesky (Jason, 2026-11-25: "how cool would it be to have the
+// daily question on the site and linked to the bluesky post for discussion?"). announce() writes both keys once.
+export const QUESTION_KEY = 'site:question'
+export const postKey = (slug) => `journal:post:${slug}`
+const POST = /^at:\/\/(did:[a-z0-9:]+)\/app\.bsky\.feed\.post\/([a-z0-9]+)$/i
+const SLUG = /^\d{4}-\d{2}-\d{2}-[a-z0-9-]{1,80}$/
+
+/** A post's address on bsky.app, by DID (a handle can change), or null for anything that isn't one of its posts. */
+export function postUrl(uri) {
+  const m = String(uri || '').match(POST)
+  return m ? `https://bsky.app/profile/${m[1]}/post/${m[2]}` : null
+}
+
+/** The line under an entry's question: where to talk it over. */
+export const discussHtml = (post) => {
+  const url = postUrl(post)
+  return url ? `<p class="discuss"><a href="${esc(url)}" rel="noopener">Talk it over on Bluesky</a>, under autonomist's post of this question. The conversation there is public.</p>
+` : ''
+}
+
+/** The front page's slot: the latest question, its entry, and its thread on Bluesky; nothing if there's none. */
+export function questionHtml(q) {
+  const url = postUrl(q?.post)
+  if (!q?.question || !url || !SLUG.test(q.slug || '') || !/^\d{4}-\d{2}-\d{2}$/.test(q.date || '')) return ''
+  const date = new Date(`${q.date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })
+  return `<section class="question" aria-labelledby="question-h">
+<h2 id="question-h">A question to take to your neighbors</h2>
+<p class="q">${esc(String(q.question).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 600))}</p>
+<p class="muted">From autonomist's <a href="/journal/${esc(q.slug)}/">${q.kind === 'digest' ? 'digest' : 'journal'} of ${esc(date)}</a>. <a href="${esc(url)}" rel="noopener">Talk it over on Bluesky</a>, where the conversation is public.</p>
+</section>`
+}
+
 /** What the network shared, written by code from the digest's record: each story, how many shared it, what was read. */
 export function networkHtml(net) {
   if (!net?.stories?.length) return ''
@@ -19,8 +51,8 @@ export function networkHtml(net) {
 `
 }
 
-export function entryHtml(rec, { uri, origin }) {
-  if (rec.kind === 'digest') return digestHtml(rec, { uri, origin })
+export function entryHtml(rec, { uri, origin, post }) {
+  if (rec.kind === 'digest') return digestHtml(rec, { uri, origin, post })
   const sources = Array.isArray(rec.sources) ? rec.sources.map(String) : []
   // relative links only as plain paths ("/\\host" would leave the site), else the entry's own sources and the two sites
   const allowLink = (u) => /^\/[A-Za-z0-9._~\/-]*$/.test(u) || sources.includes(u) || u.startsWith(`${PE}/`) || (origin && u.startsWith(`${origin}/`))
@@ -33,7 +65,7 @@ export function entryHtml(rec, { uri, origin }) {
   return `<h1>${esc(rec.title)}</h1>
 <p class="byline">autonomist's journal · ${esc(rec.date)} · on ${source}${rec.outlet ? ` (${esc(rec.outlet)})` : ''}${by}${via}</p>
 ${render(clean(rec.body), { allowLink })}
-${checkedHtml(rec.checks?.claims, rec.checks)}<p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the article and the Power Explained pages it cites (${Number(rec.checks?.quotes || 0)} quotations, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
+${discussHtml(post)}${checkedHtml(rec.checks?.claims, rec.checks)}<p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the article and the Power Explained pages it cites (${Number(rec.checks?.quotes || 0)} quotations, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
 }
 
 export function checkedHtml(claims, checks = {}, { digest = false } = {}) {
@@ -51,7 +83,7 @@ ${before}${html}
 ` : ''
 }
 
-function digestHtml(rec, { uri, origin }) {
+function digestHtml(rec, { uri, origin, post }) {
   const sources = Array.isArray(rec.sources) ? rec.sources.map(String) : []
   const allowLink = (u) => /^\/[A-Za-z0-9._~\/-]*$/.test(u) || sources.includes(u) || u.startsWith(`${PE}/`) || (origin && u.startsWith(`${origin}/`))
   const clean = (x) => String(x || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
@@ -60,7 +92,7 @@ function digestHtml(rec, { uri, origin }) {
   return `<h1>${esc(rec.title)}</h1>
 <p class="byline">autonomist's digest · ${esc(rec.date)} · from ${num(net.read)} article${Number(net.read) === 1 ? '' : 's'} across ${num((net.stories || []).length)} ${(net.stories || []).length === 1 ? 'story' : 'stories'}</p>
 ${render(clean(rec.body), { allowLink })}
-${networkHtml(net)}${checkedHtml(rec.checks?.claims, rec.checks, { digest: true })}<p><a href="/newsletter/">Get the digest by email</a>, once a day.</p>
+${discussHtml(post)}${networkHtml(net)}${checkedHtml(rec.checks?.claims, rec.checks, { digest: true })}<p><a href="/newsletter/">Get the digest by email</a>, once a day.</p>
 <p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the ${num(net.read)} articles it read, the Power Explained pages it cites, and its own counts (${Number(rec.checks?.quotes || 0)} quotations from ${Number(rec.checks?.articlesQuoted || 0)} articles, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
 }
 

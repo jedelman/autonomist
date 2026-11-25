@@ -6,6 +6,7 @@ import { fits } from './text.js'
 import { rememberRoot } from './threads.js'
 import { writeLog } from './log.js'
 import { factCheck, siteOf, CHECKER_VERSION } from './factcheck.js'
+import { QUESTION_KEY, postKey } from '../journal-pages.js'
 
 export const COLLECTION = 'org.jason-edelman.autonomist.journal'
 /**
@@ -48,22 +49,32 @@ export async function fetchArticle(url, f, cache) {
 }
 
 /** Posts the day's entry on Bluesky, once: the question leads and the entry rides along as a link card. */
-export async function announce({ kv, api, day }) {
+export async function announce({ kv, api, day, sleep = (ms) => new Promise((ok) => setTimeout(ok, ms)) }) {
   const a = await kv.get(`journal:announce:${day}`, 'json')
-  if (!a || a.post) return { announced: a?.post || null }
-  if (a.claimed) return { announced: null, note: 'an earlier post attempt may have gone out; not posting again' }
-  await kv.put(`journal:announce:${day}`, JSON.stringify({ ...a, claimed: true }), { expirationTtl: 3 * 86400 })
+  if (!a) return { announced: null }
+  // Workers KV takes one write a second per key, and the second throws: so the claim, the post and the links each get
+  // a key of their own, written once (entries announced before 2026-11-25 kept the post on the announcement itself)
+  const posted = a.post || (await kv.get(`journal:posted:${day}`))
+  if (posted) return { announced: posted }
+  const claim = `journal:announce-claim:${day}`
+  if (a.claimed || (await kv.get(claim))) return { announced: null, note: 'an earlier post attempt may have gone out; not posting again' }
+  await kv.put(claim, '1', { expirationTtl: 3 * 86400 })
   const text = [`${a.question}\n\nFrom today's ${a.kind === 'digest' ? 'digest' : 'journal'}: ${a.title}`, a.question].find(fits)
   let post
   try {
     post = await api.post({ text, card: { uri: a.url, title: a.title, description: a.summary } })
   } catch (e) {
     // the post goes to autonomist's own PDS in-process, so a failure here means it didn't go out: release the claim
-    await kv.put(`journal:announce:${day}`, JSON.stringify({ ...a, claimed: false }), { expirationTtl: 3 * 86400 })
+    // (after a second, KV's limit) so the next run tries again
+    await sleep(1100)
+    await kv.delete(claim).catch(() => {})
     throw e
   }
-  await kv.put(`journal:announce:${day}`, JSON.stringify({ ...a, claimed: true, post: post.uri }), { expirationTtl: 3 * 86400 })
+  await kv.put(`journal:posted:${day}`, post.uri, { expirationTtl: 3 * 86400 })
   await kv.put(`journal:root:${post.uri}`, JSON.stringify({ slug: a.slug, title: a.title, summary: a.summary, question: a.question, url: a.url, source: a.source, ...(a.sources ? { sources: a.sources } : {}) }), { expirationTtl: 60 * 86400 })
+  // where the entry's page, the front page and the email send people to talk it over
+  await kv.put(postKey(a.slug), post.uri)
+  await kv.put(QUESTION_KEY, JSON.stringify({ question: a.question, title: a.title, slug: a.slug, kind: a.kind || 'journal', date: day, post: post.uri }))
   await rememberRoot(kv, post, 'journal')
   return { announced: post.uri }
 }

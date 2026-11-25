@@ -85,6 +85,7 @@ test('dry run: the digest and its questions, as they would be published, with no
   const now = new Date('2026-11-25T14:00:00Z')
   await network(kv, now.getTime())
   await kv.put('journal:done:2026-11-25', 'the-real-one') // the real bot already published today
+  await kv.put('journal:posted:2026-11-25', 'at://did:plc:me/app.bsky.feed.post/real') // and posted it
   const sent = []
   const api = { session: async () => ({ did: 'did:plc:me' }), call: async (m, nsid) => { if (m !== 'GET') sent.push(nsid); return { records: [] } }, post: async () => { sent.push('post'); return {} }, pub: async () => ({}) }
   const realKeys = new Set(kv.m.keys())
@@ -104,6 +105,7 @@ test('dry run: the digest and its questions, as they would be published, with no
   // the real KV gained only the artifact and its index: no day marked done, no recent questions, no covered links
   const added = [...kv.m.keys()].filter((k) => !realKeys.has(k)).sort()
   assert.deepEqual(added, ['dryrun:index', `dryrun:result:${r.dryRun}`])
+  assert.equal(await kv.get('site:question'), null) // the front page's question is the real one's, never a dry run's
   assert.equal(await kv.get('journal:done:2026-11-25'), 'the-real-one')
 })
 

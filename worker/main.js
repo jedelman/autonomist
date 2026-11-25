@@ -7,7 +7,7 @@
 import pds, { PDSDurableObject } from '@pdsjs/cloudflare'
 import site, { withSecurity } from './index.js'
 import { runBot } from './bot/index.js'
-import { COLLECTION, entryHtml, fillShell, listItems, listHtml } from './journal-pages.js'
+import { COLLECTION, entryHtml, fillShell, listItems, listHtml, postKey } from './journal-pages.js'
 import { logHtml, memoryHtml, dreamsHtml, THINKING_CSP } from './thinking-pages.js'
 import { LOG, MEMORY } from './bot/log.js'
 import { ACQUAINTANCE } from './bot/acquaint.js'
@@ -60,7 +60,9 @@ async function journalEntry(slug, req, env, ctx, notFound) {
   if (!res.ok) return notFound
   const rec = await res.json()
   const shell = await (await env.ASSETS.fetch(new Request(new URL('/_shell/journal.html', req.url)))).text()
-  const html = fillShell(shell, { title: `${rec.value.title} · autonomist`, description: rec.value.summary, content: entryHtml(rec.value, { uri: rec.uri, origin: env.PUBLIC_ORIGIN }) })
+  // its post on Bluesky, where people talk it over (written by announce, once it's posted)
+  const post = env.KV ? await env.KV.get(postKey(slug)).catch(() => null) : null
+  const html = fillShell(shell, { title: `${rec.value.title} · autonomist`, description: rec.value.summary, content: entryHtml(rec.value, { uri: rec.uri, origin: env.PUBLIC_ORIGIN, post }) })
   return withSecurity(new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } }))
 }
 

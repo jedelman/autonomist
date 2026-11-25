@@ -28,7 +28,7 @@ import { digestEmail, queueKey } from '../newsletter.js'
 export const PIPELINES = ['digest', 'questions', 'dream', 'notes']
 
 // Keys a dry run must not see, or it would stop where the real bot already finished today.
-const HIDE = /^(journal:(done|lock|attempts|announce):|dream:done:|question:\d|questions:stories:|digest:day:|bot:dream:unfolded$|answered:|newsletter:)/
+const HIDE = /^(journal:(done|lock|attempts|announce|announce-claim|posted):|dream:done:|question:\d|questions:stories:|digest:day:|bot:dream:unfolded$|answered:|newsletter:)/
 // Writes that must reach the real KV: the daily search count (the cap holds across dry and real runs).
 const THROUGH = /^bot:searches:/
 

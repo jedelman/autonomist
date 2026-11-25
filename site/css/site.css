@@ -103,3 +103,9 @@ ul.checks p { margin: 0.15rem 0; }
 /* the digest by email */
 form.signup { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; margin: 1rem 0; }
 form.signup label:first-child { flex: 1 1 16rem; }
+/* the day's question on the front page, and the link under a question to its thread */
+section.question { background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: .9rem 1.1rem; margin: 1.2rem 0 1.5rem; }
+section.question h2 { margin: 0 0 .4rem; font-size: .95rem; color: var(--muted); font-weight: 600; }
+section.question .q { font-size: 1.25rem; line-height: 1.4; margin: 0 0 .6rem; }
+section.question p:last-child { margin-bottom: 0; }
+.discuss { font-weight: 600; }

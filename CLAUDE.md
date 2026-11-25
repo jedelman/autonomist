@@ -107,7 +107,7 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     question that doesn't open like a recent one. Stored as an `org.jason-edelman.autonomist.journal` record with
     `kind: 'digest'` and `network` (stories, sharer counts, articles read), rendered at `/journal/<slug>/` with "What
     the network shared" written by code (`journal-pages.js`). Who shared what is never published. This is the one place
-    model-written prose goes on a public page. The day's stories, notes and texts are kept a day for the feed questions
+    model-written prose goes on a public page (its question also shows on the front page, below). The day's stories, notes and texts are kept a day for the feed questions
     (`digest:day:<day>`). `node scripts/journal-check.mjs --framework` checks the passages against the live site;
     recently quoted passages go last in the sheet (`framework:used`). Story labels are the clustering call's: cleaned,
     shown to the model and on the page, and never a source checks verify against (`networkBlock(..., { labels: false })`
@@ -117,6 +117,13 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     rather than writing another. It works to a deadline inside the cron's fifteen minutes (no second synthesis or
     fact-checks when time is short), and the hourly steps after it don't start late. Fact-checks never count the
     outlets it read, nor do fact-checks in replies under its post (`journal:root` carries `sources`).
+  - **The day's question on the site** (Jason, 2026-11-25: "how cool would it be to have the daily question on the site
+    and linked to the bluesky post for discussion?"). When `announce` posts an entry's question, it writes the post's
+    link for the entry (`journal:post:<slug>`, kept) and the latest question (`site:question`). The front page fills
+    its slot (`<div class="slot-question">`) from it in the Worker, with no script; the entry's page and the email link
+    to the same thread ("Talk it over on Bluesky"), by DID. Nothing shows until a real post exists, and a dry run never
+    writes them (its keys stay in the scratch layer). The claim, the post and the links are each a key of their own,
+    written once (KV's one write a second per key).
   - **Dry runs** (Jason, 2026-11-25: "Let's set up a dry run mode so we can produce the artifacts a real run would
     produce but as test artifacts, never posted"; `dry.js`). A real run with nothing let out: real network, real reading
     under robots.txt, real priced model calls, but every post and record write is captured (`dryApi`) and the pipelines'

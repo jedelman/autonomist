@@ -16,7 +16,7 @@
 //   a run cut short never sends the digest twice (Resend's idempotency keys don't cover broadcasts).
 // - Unsubscribing is Resend's: every digest carries its unsubscribe link ({{{RESEND_UNSUBSCRIBE_URL}}}).
 import { esc, render } from '../site/js/md.js'
-import { networkHtml, checkedHtml } from './journal-pages.js'
+import { networkHtml, checkedHtml, postKey, postUrl } from './journal-pages.js'
 import { normalizeEmail, sha256hex } from './invites.js'
 import { setting } from './limits.js'
 
@@ -91,7 +91,8 @@ export function plainText(md) {
  * The digest as an email: { subject, html, text }. `unsubscribe` is the unsubscribe link (Resend's placeholder in a
  * broadcast; a plain page in a preview). The body is the record's own text, rendered as the page renders it.
  */
-export function digestEmail(rec, { origin = ORIGIN, uri = '', unsubscribe = UNSUBSCRIBE } = {}) {
+export function digestEmail(rec, { origin = ORIGIN, uri = '', post = null, unsubscribe = UNSUBSCRIBE } = {}) {
+  const thread = postUrl(post)
   const url = `${origin}/journal/${rec.slug || ''}/`.replace(/\/\/$/, '/')
   // the unsubscribe link goes in last, in place of a marker no article or model can guess, so a "{{{...}}}" in the
   // content is broken up like any other tag and never becomes a working one
@@ -104,7 +105,7 @@ export function digestEmail(rec, { origin = ORIGIN, uri = '', unsubscribe = UNSU
   const body = render(clean(rec.body), { allowLink, headingIds: false })
   const checked = checkedHtml(rec.checks?.claims, rec.checks, { digest: true })
   const footer = `<p class="muted">Written by autonomist, an AI (Claude, by Anthropic), on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the articles it read, the Power Explained pages it cites, and its own counts. It's also on the web, with everything above: <a href="${esc(url)}">${esc(url)}</a>${uri ? `, and stored in autonomist's own atproto repository as <code>${esc(uri)}</code>` : ''}.</p>
-<p class="muted">To talk about it, reply to autonomist on Bluesky (<a href="https://bsky.app/profile/autonomist.jason-edelman.org">@autonomist.jason-edelman.org</a>), where its conversations are public.</p>
+<p class="muted">${thread ? `To talk it over, <a href="${esc(thread)}">reply under autonomist's post of its question</a> on Bluesky` : `To talk about it, reply to autonomist on Bluesky (<a href="https://bsky.app/profile/autonomist.jason-edelman.org">@autonomist.jason-edelman.org</a>)`}, where its conversations are public.</p>
 <p class="muted">autonomist is a public-interest project of Jason Edelman. It sells nothing. Nothing here is investment, financial, legal or tax advice, or an offer of securities; autonomist holds no money and signs nothing for anyone.</p>
 <p class="muted">You're getting this because you signed up at <a href="${esc(origin)}/newsletter/">${esc(origin.replace(/^https?:\/\//, ''))}/newsletter/</a> and confirmed. <a href="${mark}">Unsubscribe</a> at any time, in one click.</p>`
   const inner = styleEmail(`<p class="muted">${byline}</p>
@@ -141,7 +142,7 @@ ${inner}
     '',
     '---',
     `Written by autonomist, an AI (Claude, by Anthropic). On the web: ${url}`,
-    'To talk about it, reply to @autonomist.jason-edelman.org on Bluesky, where its conversations are public.',
+    thread ? `To talk it over, reply under autonomist's post of its question on Bluesky, where its conversations are public: ${thread}` : 'To talk about it, reply to @autonomist.jason-edelman.org on Bluesky, where its conversations are public.',
     'autonomist is a public-interest project of Jason Edelman. It sells nothing. Nothing here is investment, financial, legal or tax advice, or an offer of securities.',
     `You're getting this because you signed up at ${origin}/newsletter/ and confirmed. Unsubscribe: ${mark}`,
   ].join('\n')).replaceAll(mark, unsubscribe)
@@ -312,7 +313,8 @@ export async function sendNewsletter({ env, kv, now = new Date(), fetch: f = fet
     await kv.put(thisHour, '1', { expirationTtl: 7 * 86400 })
     let id = await kv.get(draftKey)
     if (!id) {
-      const mail = digestEmail({ ...q.record, slug }, { origin: originOf(env), uri: q.uri })
+      // the digest's post is usually up by now (announced in the same run, before this step)
+      const mail = digestEmail({ ...q.record, slug }, { origin: originOf(env), uri: q.uri, post: await kv.get(postKey(slug)) })
       const r = await resend(env, 'POST', '/broadcasts', { segment_id: env.RESEND_SEGMENT_ID, from: env.NEWSLETTER_FROM, name: `Digest ${q.record.date}: ${mail.subject}`.slice(0, 200), ...mail }, { fetch: f })
       if (!r.ok || !r.data?.id) throw fail('create', r)
       id = r.data.id

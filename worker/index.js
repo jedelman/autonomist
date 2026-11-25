@@ -10,6 +10,7 @@ import { UA_HEADER } from './parcel.js'
 import { adminApi, adminEnabled } from './admin.js'
 import { queueChatReflection, memoryNote } from './bot/log.js'
 import { newsletterReady, subscribe, confirm } from './newsletter.js'
+import { QUESTION_KEY, questionHtml } from './journal-pages.js'
 
 export const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 const SECURITY = { 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()' }
@@ -184,6 +185,16 @@ async function newsletterRoute(req, env, action) {
   return json(out.body, out.status)
 }
 
+// The front page with the day's question in its slot (journal-pages.js), or the slot removed when there's none.
+const QUESTION_SLOT = '<div class="slot-question"></div>'
+async function frontPage(req, env) {
+  const page = await env.ASSETS.fetch(req)
+  if (!page.ok || !(page.headers.get('Content-Type') || '').includes('text/html')) return withSecurity(page)
+  const q = env.KV ? await env.KV.get(QUESTION_KEY, 'json').catch(() => null) : null
+  const html = (await page.text()).replace(QUESTION_SLOT, () => questionHtml(q))
+  return withSecurity(new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } }))
+}
+
 async function result(id, env) {
   if (!/^[a-z0-9]{12}$/.test(id) || !env.KV) return json({ error: 'No such result.' }, 404)
   const rec = await env.KV.get(`result:${id}`, 'json')
@@ -229,6 +240,7 @@ export default {
       r.headers.set('Cache-Control', 'no-store')
       return r
     }
+    if (req.method === 'GET' && (path === '/' || path === '/index.html')) return frontPage(req, env)
     return withSecurity(await env.ASSETS.fetch(req))
   },
 }

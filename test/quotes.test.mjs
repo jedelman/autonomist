@@ -79,3 +79,26 @@ test('quotable: the first article with a usable post, most-shared first', async 
   assert.deepEqual(await quotable(kv, [{ url: 'https://a.example/1' }, { url: 'https://b.example/2' }]), { uri: 'at://p/2', cid: 'c2', kind: 'publisher', url: 'https://b.example/2' })
   assert.equal(await quotable(kv, [{ url: 'https://a.example/1' }]), null)
 })
+
+test('the post carries one article, chosen first, and the framing is held to that article alone', async () => {
+  const kv = memoryKV()
+  const other = { url: 'https://e.example/wages', title: 'Garment wages rise short of demands', outlet: 'e.example', gist: 'g', quotes: [], text: 'The wage board raised the minimum wage 36 percent.' }
+  const tyee = { url: 'https://f.example/leader', title: 'Labour picks a leader', outlet: 'f.example', gist: 'g', quotes: [], text: 'The party will pick its next leader in spring, after 12,000 members voted.' }
+  await kv.put('digest:day:2026-11-25', JSON.stringify({ block: '', stories: [{ label: 'Lead', sharers: 9, articles: [{ ...ARTICLE, url: 'https://a.example/x' }] }, { label: 'Labor', sharers: 4, articles: [tyee, other] }, { label: 'Third', sharers: 2, articles: [{ ...ARTICLE, url: 'https://d.example/y' }] }] }))
+  // only the second article has a quotable post: it becomes the article the post carries
+  await kv.put(await quoteKey(other.url), JSON.stringify({ uri: 'at://did:plc:pub/app.bsky.feed.post/w', cid: 'cw', did: 'did:plc:pub', handle: 'e.example', kind: 'publisher' }))
+  const posts = [], prompts = []
+  const api = { session: async () => ({ did: 'did:plc:me' }), call: async () => ({ uri: 'at://log' }), post: async (p) => { posts.push(p); return { uri: 'at://q/2', cid: 'c' } } }
+  const drafts = [
+    // a figure from the other article is refused: the framing is held to the one the post carries
+    { framing: 'f.example reports the party will pick its next leader after 12,000 members voted.', question: 'Who gets a say where you work?', reflection: '', themes: [] },
+    { framing: 'e.example reports the wage board raised the minimum wage 36 percent.', question: 'Who gets a say where you work?', reflection: '', themes: [] },
+  ]
+  const r = await runQuestion({ env: {}, kv, api, model: { structured: async ({ user }) => { prompts.push(user); return { data: drafts.shift() } } }, day: '2026-11-25', now: new Date('2026-11-25T16:07:00Z') })
+  assert.equal(r.story, 'Labor', JSON.stringify(r))
+  assert.ok(prompts[0].includes('THE ARTICLE THIS POST CARRIES (as a quoted post that shared it): e.example: Garment wages rise short of demands'))
+  assert.equal(prompts.length, 2)
+  assert.equal(posts[0].quote.url, other.url)
+  assert.ok(posts[0].text.startsWith('e.example reports'))
+})
+

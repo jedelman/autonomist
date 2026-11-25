@@ -147,7 +147,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     autonomist prefer quote-posts"; his pick: publishers' own posts and opted-in people's): a post of one of the
     story's articles by its publisher (`isPublisher`: the handle is the link's site or one of its names) or by someone
     who opted in and still does (`quotable`, rechecked at posting), kept by the sweep (`quote:<hash>`, three days); else
-    the most-shared article as a link card. `checkQuestion` holds it to the digest's standard against that story's
+    the most-shared article as a link card. The article is chosen before the model writes, and the framing is held to
+    that article alone, so the text and what's attached agree. `checkQuestion` holds it to the digest's standard against that story's
     articles and counts. No digest, no question.
     The daily digest's post also leads with its question. Recent questions are kept (`questions:recent`) so openings
     don't repeat.

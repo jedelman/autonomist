@@ -86,9 +86,14 @@ export async function runQuestion({ env, kv, api, model, day, now = new Date() }
       // the counts are code's; the label is the clustering call's, shown but never a verified source
       const counts = `Shared by ${Number(story.sharers).toLocaleString('en-US')} ${Number(story.sharers) === 1 ? 'person' : 'people'} today; ${story.articles.length} article${story.articles.length === 1 ? '' : 's'} read.`
       const notes = story.articles.map((a) => `- ${a.outlet}: ${a.title}\n  Gist: ${a.gist}${a.quotes?.length ? `\n  Passages: ${a.quotes.map((q) => `“${q}”`).join(' ')}` : ''}`).join('\n')
-      const texts = [counts, ...story.articles.map((a) => `${a.title}\n${a.text}`)]
+      // the post carries one article, chosen first: one with a post it may quote (Jason, 2026-11-25: "prefer
+      // quote-posts"), else the most-shared. The framing reports that article, so the text and what's attached agree
+      // (a dry run had a question about one outlet's story carrying another's link).
+      const quote = await quotable(kv, story.articles)
+      const focus = (quote && story.articles.find((a) => a.url === quote.url)) || story.articles[0]
+      const texts = [counts, `${focus.title}\n${focus.text}`]
       let out = null, last = null
-      let user = `STORY: ${story.label}\n(counted by code) ${counts}\n\nNOTES ON THE ARTICLES\n${notes}${mem}${recent.length ? `\n\nYOUR RECENT QUESTIONS (don't reuse their openings)\n${recent.map((q) => `- ${q}`).join('\n')}` : ''}`
+      let user = `STORY: ${story.label}\n(counted by code) ${counts}\n\nTHE ARTICLE THIS POST CARRIES (${quote ? 'as a quoted post that shared it' : 'as a link card'}): ${focus.outlet}: ${focus.title}\nThe framing reports what this article says, and names ${focus.outlet}.\n\nNOTES ON THE ARTICLES\n${notes}${mem}${recent.length ? `\n\nYOUR RECENT QUESTIONS (don't reuse their openings)\n${recent.map((q) => `- ${q}`).join('\n')}` : ''}`
       for (let attempt = 0; attempt < 2 && !out; attempt++) {
         const { data } = await model.structured({ system: QUESTION_SYSTEM, user, schema: QUESTION_SCHEMA, effort: 'medium', maxTokens: 6000 })
         last = data
@@ -97,10 +102,7 @@ export async function runQuestion({ env, kv, api, model, day, now = new Date() }
         else user += `\n\nYOUR DRAFT\n${JSON.stringify(data)}\nA program rejected it: ${c.problems.join('; ')}. Write it again and fix that.`
       }
       if (!out) continue
-      const card = story.articles[0]
-      // quote-posts first (Jason, 2026-11-25: "prefer quote-posts"): a publisher's own post of one of the story's
-      // articles, or an opted-in person's, still opted in now; else the most-shared article as a link card
-      const quote = await quotable(kv, story.articles)
+      const card = focus
       // claim the slot before posting, so a failure after the post can never lead to a second one. The post's address
       // goes under its own key: the post is quick (its own PDS, in-process), and KV takes one write a second per key.
       await kv.put(key, 'pending', { expirationTtl: 3 * 86400 })

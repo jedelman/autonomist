@@ -6,7 +6,8 @@ import { onPage, siteOf, citationsOf, verdictOf, factCheck, checkNote, cleanClai
 import { runReplies } from '../worker/bot/replies.js'
 import { BudgetError } from '../worker/bot/model.js'
 import { decide, vetReply } from '../worker/bot/replies.js'
-import { claimsToCheck, checkClaims, publish } from '../worker/bot/journal.js'
+import { claimsToCheck, checkClaims } from '../worker/bot/journal.js'
+import { publishDigest } from '../worker/bot/digest.js'
 import { searchCall, SEARCH_USD } from '../worker/bot/model.js'
 import { checksHtml } from '../worker/checks-html.js'
 import { entryHtml } from '../worker/journal-pages.js'
@@ -234,12 +235,14 @@ test('review: out of budget, a reply is deferred: the claim is let go and the cu
   assert.equal(await kv.get('bot:notif:seen'), '2026-11-24T00:00:00.000Z')
 })
 
-test('review: every page quoted on an entry page, the checks included, is in its sources', async () => {
+test('review: every page a digest read or quoted, the checks included, is in its sources', async () => {
   const puts = []
   const api = { session: async () => ({ did: 'did:plc:me' }), call: async (m, nsid, o) => { puts.push(o.body.record) } }
   const claims = [{ claim: CLAIM, verdict: 'supported', sources: [{ url: 'https://gov.example/minutes', quote: 'q', stance: 'supports' }] }]
-  await publish({ env: {}, kv: memoryKV(), api, day: '2026-11-24', article: { url: 'https://src.example/article', siteName: 'S', title: 'T', authors: [] }, cand: {}, draft: { title: 'T', summary: 's', question: 'q?', body: 'b' }, check: { quotes: 1, figures: 0, frameworkUrls: ['https://power-explained.jason-edelman.org/x/'], claims } })
+  const articles = [{ url: 'https://src.example/article', title: 'T', outlet: 'S' }]
+  await publishDigest({ env: {}, kv: memoryKV(), api, day: '2026-11-24', draft: { title: 'T', summary: 's', question: 'q?', body: 'b' }, check: { quotes: 1, figures: 0, articlesQuoted: 1, frameworkUrls: ['https://power-explained.jason-edelman.org/x/'], claims }, net: { links: 10, accounts: 4 }, stories: [{ label: 'L', sharers: 3, articles }], articles, closed: 0 })
   assert.deepEqual(puts[0].sources, ['https://src.example/article', 'https://power-explained.jason-edelman.org/x/', 'https://gov.example/minutes'])
+  assert.equal(puts[0].kind, 'digest')
   assert.equal(puts[0].checks.claims[0].verdict, 'supported')
 })
 
@@ -276,4 +279,10 @@ test('language: the post record is tagged with the language given, English by de
   await api.post({ text: 'その建物の持ち主は誰ですか？', lang: 'ja' })
   await api.post({ text: 'Who owns your building?' })
   assert.deepEqual(bodies.map((b) => b.record.langs), [['ja'], ['en']])
+})
+
+test('review: a digest\'s fact-checks never count the outlets it read', async () => {
+  const seen = []
+  await checkClaims({ env: {}, kv: memoryKV(), model: { search: () => {} }, day: 'd', draft: { claims_to_check: ['The council voted to sell the complex.'] }, article: { title: '', url: '', text: 'The council voted to sell the complex.' }, exclude: ['a.example', 'b.example'], factCheckFn: async (o) => { seen.push(o.exclude); return { claim: o.claim, verdict: 'unverified', sources: [] } } })
+  assert.deepEqual(seen[0], ['a.example', 'b.example'])
 })

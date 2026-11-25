@@ -155,6 +155,6 @@ write('_shell/journal.html', page({ title: '{{journal:title}}', description: '{{
 // the same shell under Thinking, for the notes on people who opted in (worker/known-pages.js)
 write('_shell/known.html', page({ title: '{{journal:title}}', description: '{{journal:description}}', content: '<!--journal:content-->', section: 'thinking' }))
 write('404.html', page({ title: 'Not found · autonomist', content: '<h1>Not found</h1><p>There is no page at this address. Try the <a href="/">front page</a>.</p>' }))
-write('robots.txt', 'User-agent: *\nDisallow: /api/\nDisallow: /results/\nDisallow: /admin/\nDisallow: /_shell/\nDisallow: /known/\n')
+write('robots.txt', 'User-agent: *\nDisallow: /api/\nDisallow: /results/\nDisallow: /admin/\nDisallow: /_shell/\nDisallow: /known/\nDisallow: /newsletter/confirm/\n')
 write('content-index.json', JSON.stringify(index))
 console.log(`built public/: ${papers.length} papers, ${index.journal.length} journal entries, ${index['case-studies'].length} case studies, ${tools.length} tools`)

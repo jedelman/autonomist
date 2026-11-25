@@ -21,4 +21,19 @@ export const FRAMEWORK = [
   { url: `${PE}/land-is-the-foundation`, page: 'Land Is the Foundation', text: 'Land that could feed a community is held by investors who have never set foot on it.' },
 ]
 
-export const frameworkSheet = () => FRAMEWORK.map((p, i) => `[${i + 1}] ${p.page} (${p.url})\n${p.text}`).join('\n\n')
+/**
+ * The passages as a numbered sheet. Passages used recently (`used`, newest first, from KV framework:used) go last and
+ * are marked, so the writing doesn't lean on the same two lines every day.
+ */
+export const frameworkSheet = (used = []) => {
+  const recent = new Set(used.slice(0, 8))
+  const order = [...FRAMEWORK.filter((p) => !recent.has(p.text)), ...FRAMEWORK.filter((p) => recent.has(p.text))]
+  return order.map((p, i) => `[${i + 1}] ${p.page} (${p.url})${recent.has(p.text) ? ' (used recently: prefer others)' : ''}\n${p.text}`).join('\n\n')
+}
+
+/** Records the passages a published piece quoted, newest first. */
+export async function markUsed(kv, texts = []) {
+  if (!texts.length) return
+  const prev = (await kv.get('framework:used', 'json')) || []
+  await kv.put('framework:used', JSON.stringify([...texts, ...prev.filter((t) => !texts.includes(t))].slice(0, 20)))
+}

@@ -330,7 +330,7 @@ test('threads: the note is written from threads as threads', async () => {
     return Response.json({ records: [] })
   }
   let prompt = ''
-  const model = { structured: async ({ user }) => { prompt = user; return { data: { note: 'You work through rent and land ownership in threads.', topics: ['rent'] } } } }
+  const model = { structured: async ({ user, schema }) => { if (schema.properties.names) return { data: { names: [] } }; prompt = user; return { data: { note: 'You work through rent and land ownership in threads.', topics: ['rent'] } } } }
   await runAcquaint({ env: {}, kv, api: fakeApi(), model, fetch: f })
   assert.ok(prompt.includes('SHAPE (computed by code)'))
   assert.ok(prompt.includes('Thread 1: 2 posts, over 60 minutes\n  1/ A thread on rent.\n  2/ Part two: who owns the land.'))

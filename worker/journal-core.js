@@ -8,6 +8,8 @@
 export const AGENT = 'autonomist'
 export const UA = `Mozilla/5.0 (compatible; ${AGENT}/1.0; +https://autonomist.jason-edelman.org/journal/)`
 export const SECTIONS = ['What it says', 'Through Power Explained', 'What it means for the federation', "What we don't know", 'A question to take to your neighbors']
+// The daily digest's sections (bot/digest.js, since 2026-11-25), which replaced the one-article entry.
+export const DIGEST_SECTIONS = ['What the network is reading', 'The common threads', 'For people organizing', "What we don't know", 'A question to take to your neighbors']
 
 export function frontMatter(src) {
   const m = src.match(/^---\n([\s\S]*?)\n---\n?/)

@@ -8,7 +8,6 @@
 import { client } from './atproto.js'
 import { structured, searchCall } from './model.js'
 import { refreshFollows, sweep } from './sources.js'
-import { runJournal } from './journal.js'
 import { runReplies } from './replies.js'
 import { ensurePinned, refreshOptins, syncFollows, runOptin } from './optin.js'
 import { runAcquaint } from './acquaint.js'
@@ -17,14 +16,14 @@ import { runDiscussions } from './threads.js'
 import { drainChatReflections, foldMemory } from './log.js'
 import { runDream } from './dream.js'
 import { recheckEntries } from './journal.js'
+import { runDigest } from './digest.js'
+import { maybeDryRun, scheduledDry } from './dry.js'
+import { sendNewsletter } from '../newsletter.js'
 import { setting } from '../limits.js'
-import firstEntry from '../../content/journal/2026-11-23-piketty-global-justice.md'
-import { frontMatter } from '../journal-core.js'
 
 export const FAST = '*/5 * * * *'
 export const HOURLY = '7 * * * *'
 
-const EXAMPLE = frontMatter(firstEntry).body.replace(/<p class="byline">[\s\S]*?<\/p>\n*/, '').replace(/<p class="muted">[\s\S]*?<\/p>\n*/, '').trim()
 
 export async function runBot(env, event, { pdsFetch, create } = {}) {
   if (env.BOT_ENABLED !== 'true' || !env.KV || !env.PDS_PASSWORD) return
@@ -46,6 +45,10 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
       },
     } : {}),
   }
+  const started = Date.now()
+  const dry = new Set(String(env.BOT_DRY || '').split(',').map((x) => x.trim()).filter(Boolean))
+  // the journal page's shell from the built site, for rendering dry-run pages as they'd be published
+  const shell = async () => (env.ASSETS ? env.ASSETS.fetch(new Request('https://assets.local/_shell/journal.html')).then((r) => (r.ok ? r.text() : '')).catch(() => '') : '')
   const step = async (name, fn) => {
     try { console.log(JSON.stringify({ bot: name, ok: true, result: await fn() })) } catch (e) { console.log(JSON.stringify({ bot: name, ok: false, error: String(e?.message || e).slice(0, 300) })) }
   }
@@ -60,6 +63,8 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
     await step('optin', () => runOptin({ env, kv, api, model, day, now }))
     await step('reflect', () => drainChatReflections({ env, kv, api, model }))
     await step('sweep', () => sweep(api, kv, setting(env.BOT_SWEEP_PER_TICK, 8, { min: 0, max: 40 }), now.getTime()))
+    // a dry run someone asked for (the steward's page, or scripts/dry-run.mjs): after the real work, never instead of it
+    await step('dry-run', async () => maybeDryRun({ env, kv, api, model, now, shell: await shell() }))
   }
   if (hourly) {
     const follows = await kv.get('bot:follows', 'json')
@@ -67,13 +72,23 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
     // likes first, then follows and notes, so a new opt-in is followed and known before any question to them
     await step('optins', async () => refreshOptins({ kv, api, me: (await api.session()).did }))
     await step('follows-optin', async () => syncFollows({ kv, api, me: (await api.session()).did }))
-    await step('acquaint', () => runAcquaint({ env, kv, api, model }))
-    if (now.getUTCHours() >= setting(env.BOT_JOURNAL_HOUR_UTC, 13, { min: 0, max: 23 })) await step('journal', () => runJournal({ env, kv, api, model, day, example: EXAMPLE }))
-    await step('question', () => runQuestion({ env, kv, api, model, day, now }))
+    // the digest first: it reads dozens of articles, and everything after it stops starting new work near the cron's
+    // fifteen-minute wall
+    // BOT_DRY="digest": the day's digest and its feed questions become a dry-run artifact instead of being published
+    if (now.getUTCHours() >= setting(env.BOT_JOURNAL_HOUR_UTC, 13, { min: 0, max: 23 })) {
+      if (dry.has('digest')) await step('journal', async () => scheduledDry({ env, kv, api, model, what: 'digest,questions', now, shell: await shell() }))
+      else await step('journal', () => runDigest({ env, kv, api, model, day, deadline: started + 11 * 60_000 }))
+    }
+    // the digest by email (newsletter.js): a published digest's broadcast, once; nothing without Resend's config
+    await step('newsletter', () => sendNewsletter({ env, kv, now }))
+    await step('acquaint', () => runAcquaint({ env, kv, api, model, deadline: started + 9 * 60_000 }))
+    // the rest only with time left on the cron's fifteen minutes; what's skipped runs at the next hour
+    const inTime = (name, fn) => (Date.now() < started + 12 * 60_000 ? step(name, fn) : console.log(JSON.stringify({ bot: name, ok: true, result: { skipped: 'out of time this run' } })))
+    await inTime('question', () => runQuestion({ env, kv, api, model, day, now }))
     // fact-checks made by an older checker are redone, one entry a run
-    await step('recheck', () => recheckEntries({ env, kv, api, model, day }))
+    await inTime('recheck', () => recheckEntries({ env, kv, api, model, day }))
     // once a day, a slower reflection, folded into the memory right after
-    await step('dream', () => runDream({ env, kv, api, model, day, now }))
-    await step('memory', () => foldMemory({ kv, api, model }))
+    await inTime('dream', () => runDream({ env, kv, api, model, day, now }))
+    await inTime('memory', () => foldMemory({ kv, api, model }))
   }
 }

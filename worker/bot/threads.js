@@ -74,7 +74,7 @@ export async function runDiscussions({ env, kv, api, model, day, now = new Date(
       const earlier = fresh.slice(0, -1).map((f) => lineOf(f.post, me))
       const known = await acquaintanceNote(kv, latest.post.author?.did, latest.post.author?.handle)
       const user = `THREAD under your own post, from your post down to the latest turn (oldest first)\n${latest.path.map((p) => lineOf(p, me)).join('\n')}${earlier.length ? `\n\nOther new turns elsewhere in the thread:\n${earlier.join('\n')}` : ''}${note}${known}${mem}\n\nPeople are talking with each other here, not to you. Join in only if you have something to contribute; otherwise listen.${(latest.post.record?.langs || []).length ? ` (The latest turn's language tags: ${latest.post.record.langs.filter((x) => typeof x === 'string').slice(0, 3).join(', ')}.)` : ''}`
-      const exclude = [...sitesOf([...latest.path, ...fresh.map((f) => f.post)]), ...(journal?.source ? sitesOf([{ record: { text: journal.source } }]) : [])]
+      const exclude = [...sitesOf([...latest.path, ...fresh.map((f) => f.post)]), ...sitesOf([{ record: { text: [journal?.source, ...(journal?.sources || [])].filter(Boolean).join(' ') } }])]
       let decided
       try {
         decided = await decide({ env, kv, model, day, user, exclude, sourceText: latest.path.map((p) => String(p.record?.text || '')).join('\n') })

@@ -265,15 +265,26 @@ export async function runDigest({ env, kv, api, model, day, fetch: f = fetch, no
     const recentQuestions = (await kv.get('questions:recent', 'json')) || []
     const mem = await memoryNote(kv)
     const base = `${digestMessage({ block, stories, articles, used })}${mem}${recentQuestions.length ? `\n\nYOUR RECENT QUESTIONS (don't reuse their openings)\n${recentQuestions.map((q) => `- ${q}`).join('\n')}` : ''}`
-    let user = base, draft = null, check = null
+    let user = base, draft = null, check = null, cutOff = false
     for (let attempt = 0; attempt < 2; attempt++) {
       // a second attempt only with time to spare: the run has fifteen minutes in all, and later steps need some
       if (attempt && Date.now() > deadline - 5 * 60_000) break
-      ;({ data: draft } = await model.structured({ system: DIGEST_SYSTEM, user, schema: DIGEST_SCHEMA, effort: 'high', maxTokens: 20000 }))
+      // Thinking counts toward max_tokens: at high effort over dozens of articles, the first live run (2026-11-25)
+      // spent all of 20,000 before writing. Room for 40,000, one try (no retry paying for it twice), up to six minutes;
+      // cut off anyway, it tries once more at medium effort.
+      try {
+        ;({ data: draft } = await model.structured({ system: DIGEST_SYSTEM, user, schema: DIGEST_SCHEMA, effort: cutOff ? 'medium' : 'high', maxTokens: 40000, timeout: 360_000, retries: 0 }))
+      } catch (e) {
+        if (cutOff || !/cut off/.test(String(e?.message))) throw e
+        cutOff = true
+        draft = null
+        continue
+      }
       check = checkDigest(draft, { articles, block: verified, recentQuestions })
       if (!check.problems.length) break
       user = `${base}\n\nYOUR PREVIOUS DRAFT\n${JSON.stringify(draft)}\n\nA program rejected it for these reasons:\n${check.problems.map((p) => `- ${p}`).join('\n')}\n\nWrite it again and fix every one. Copy quotations exactly, or don't quote.`
     }
+    if (!check) return { skipped: 'the synthesis was cut off, and there was no time to try again' }
     if (check.problems.length) return { skipped: 'the digest failed its checks', problems: check.problems.slice(0, 5) }
     for (const a of articles) covered.add(a.key)
     // fact-checks against sources outside what was read: a page repeating any article word for word doesn't count

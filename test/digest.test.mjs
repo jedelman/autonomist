@@ -272,3 +272,43 @@ test('review: a withheld note keeps only topics that name no one', async () => {
   assert.equal(puts[0].note, '')
   assert.deepEqual(puts[0].topics, ['the commons'])
 })
+
+test('live run, 2026-11-25: a synthesis cut off at high effort is tried once more at medium, with room and no paid retry', async () => {
+  const { structured } = await import('../worker/bot/model.js')
+  // the call carries its own timeout and no retries, and the client gets them as request options
+  const seen = []
+  const create = async (params, options) => { seen.push({ max: params.max_tokens, effort: params.output_config.effort, options }); return { stop_reason: seen.length === 1 ? 'max_tokens' : 'end_turn', content: [{ type: 'text', text: '{"ok":true}' }], usage: { input_tokens: 10, output_tokens: 10 } } }
+  const env = { MODEL: 'claude-haiku-5-5', DAILY_BUDGET_USD: '6', BOT_DAILY_BUDGET_USD: '3' }
+  const kv = memoryKV()
+  await assert.rejects(structured({ env, kv, day: 'd', system: 's', user: 'u', schema: {}, effort: 'high', maxTokens: 40000, timeout: 360_000, retries: 0, create }), /cut off/)
+  assert.deepEqual(seen[0], { max: 40000, effort: 'high', options: { timeout: 360_000, maxRetries: 0 } })
+  const r = await structured({ env, kv, day: 'd', system: 's', user: 'u', schema: {}, create })
+  assert.deepEqual(r.data, { ok: true })
+  assert.deepEqual(seen[1].options, {})
+})
+
+test('live run, 2026-11-25: runDigest publishes after a cut-off synthesis by trying again at medium effort', async () => {
+  const kv = memoryKV()
+  const now = Date.parse('2026-11-25T19:07:00Z')
+  await seed(kv, now)
+  const posts = []
+  const api = { session: async () => ({ did: 'did:plc:me' }), call: async () => ({ uri: 'at://did:plc:me/log/1' }), post: async (p) => { posts.push(p); return { uri: 'at://did:plc:me/app.bsky.feed.post/d1', cid: 'c' } } }
+  const calls = []
+  const model = {
+    structured: async ({ schema, user, effort, maxTokens, timeout, retries }) => {
+      if (schema === CLUSTER_SCHEMA) return { data: { stories: [{ label: 'Rent freezes', items: [0, 1, 2], relevance: 3 }, { label: 'Farmland sales', items: [4], relevance: 2 }, { label: 'A tenant co-op', items: [3], relevance: 3 }] } }
+      if (schema === NOTE_SCHEMA) { const a = Object.values(ARTICLES).find((x) => user.includes(x.title)); return { data: { gist: `Notes on ${a.title}.`, quotes: [a.text.match(/“([^”]+)”/)[1]], themes: [] } } }
+      if (schema === DIGEST_SCHEMA) {
+        calls.push({ effort, maxTokens, timeout, retries })
+        if (calls.length === 1) throw new Error('the output was cut off')
+        return { data: draft({ sections: { 'What the network is reading': 'In the last day, 10 accounts that Jason Edelman follows shared 5 links.' } }) }
+      }
+      throw new Error('unexpected call')
+    },
+  }
+  const r = await runDigest({ env: {}, kv, api, model, day: '2026-11-25', fetch: fetchFake(), now, deadline: Date.now() + 11 * 60_000 })
+  assert.ok(r.published, JSON.stringify(r))
+  assert.deepEqual(calls.map((c) => c.effort), ['high', 'medium'])
+  assert.deepEqual(calls[0], { effort: 'high', maxTokens: 40000, timeout: 360_000, retries: 0 })
+  assert.equal(posts.length, 1)
+})

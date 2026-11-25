@@ -29,7 +29,7 @@ async function ready({ env, kv, day, create }) {
   if (!create) {
     if (!env.ANTHROPIC_API_KEY) throw new Error('no ANTHROPIC_API_KEY')
     const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: 180_000 })
-    create = (params) => client.messages.create(params)
+    create = (params, options) => client.messages.create(params, options)
   }
   return { model, create }
 }
@@ -67,15 +67,18 @@ export async function searchCall({ env, kv, day, system, user, maxUses = 3, maxT
   return { content: res.content || [], usd, searches }
 }
 
-export async function structured({ env, kv, day, system, user, schema, effort = 'medium', maxTokens = 16000, create: given }) {
+// `timeout` and `retries` override the client's (3 minutes, 2 retries) for one call: a long call (the digest's
+// synthesis, whose thinking counts toward max_tokens) needs longer, and shouldn't be paid for again on a timeout.
+export async function structured({ env, kv, day, system, user, schema, effort = 'medium', maxTokens = 16000, timeout, retries, create: given }) {
   const { model, create } = await ready({ env, kv, day, create: given })
+  const options = { ...(timeout ? { timeout } : {}), ...(retries !== undefined ? { maxRetries: retries } : {}) }
   const res = await create({
     model,
     max_tokens: maxTokens,
     system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
     output_config: { effort, format: { type: 'json_schema', schema } },
     messages: [{ role: 'user', content: user }],
-  })
+  }, options)
   const usd = priceOf(model, res.usage) || 0
   await charge(kv, day, usd)
   if (res.stop_reason === 'refusal') throw new Error('the model declined')

@@ -9,6 +9,7 @@ import { verifyBody, quoteProblems, hasControlChars, normalize } from '../journa
 import { graphemes, fits } from './text.js'
 import { obj, BudgetError } from './model.js'
 import { rememberRoot } from './threads.js'
+import { quoteKey } from './sources.js'
 import { IDENTITY, VOICE } from './voice.js'
 import { REFLECTION_FIELDS, REFLECTION_RULES, writeLog, memoryNote } from './log.js'
 
@@ -85,9 +86,14 @@ export async function runQuestion({ env, kv, api, model, day, now = new Date() }
       // the counts are code's; the label is the clustering call's, shown but never a verified source
       const counts = `Shared by ${Number(story.sharers).toLocaleString('en-US')} ${Number(story.sharers) === 1 ? 'person' : 'people'} today; ${story.articles.length} article${story.articles.length === 1 ? '' : 's'} read.`
       const notes = story.articles.map((a) => `- ${a.outlet}: ${a.title}\n  Gist: ${a.gist}${a.quotes?.length ? `\n  Passages: ${a.quotes.map((q) => `“${q}”`).join(' ')}` : ''}`).join('\n')
-      const texts = [counts, ...story.articles.map((a) => `${a.title}\n${a.text}`)]
+      // the post carries one article, chosen first: one with a post it may quote (Jason, 2026-11-25: "prefer
+      // quote-posts"), else the most-shared. The framing reports that article, so the text and what's attached agree
+      // (a dry run had a question about one outlet's story carrying another's link).
+      const quote = await quotable(kv, story.articles)
+      const focus = (quote && story.articles.find((a) => a.url === quote.url)) || story.articles[0]
+      const texts = [counts, `${focus.title}\n${focus.text}`]
       let out = null, last = null
-      let user = `STORY: ${story.label}\n(counted by code) ${counts}\n\nNOTES ON THE ARTICLES\n${notes}${mem}${recent.length ? `\n\nYOUR RECENT QUESTIONS (don't reuse their openings)\n${recent.map((q) => `- ${q}`).join('\n')}` : ''}`
+      let user = `STORY: ${story.label}\n(counted by code) ${counts}\n\nTHE ARTICLE THIS POST CARRIES (${quote ? 'as a quoted post that shared it' : 'as a link card'}): ${focus.outlet}: ${focus.title}\nThe framing reports what this article says, and names ${focus.outlet}.\n\nNOTES ON THE ARTICLES\n${notes}${mem}${recent.length ? `\n\nYOUR RECENT QUESTIONS (don't reuse their openings)\n${recent.map((q) => `- ${q}`).join('\n')}` : ''}`
       for (let attempt = 0; attempt < 2 && !out; attempt++) {
         const { data } = await model.structured({ system: QUESTION_SYSTEM, user, schema: QUESTION_SCHEMA, effort: 'medium', maxTokens: 6000 })
         last = data
@@ -96,21 +102,24 @@ export async function runQuestion({ env, kv, api, model, day, now = new Date() }
         else user += `\n\nYOUR DRAFT\n${JSON.stringify(data)}\nA program rejected it: ${c.problems.join('; ')}. Write it again and fix that.`
       }
       if (!out) continue
-      const card = story.articles[0]
-      // claim the slot before posting, so a failure after the post can never lead to a second one
+      const card = focus
+      // claim the slot before posting, so a failure after the post can never lead to a second one. The post's address
+      // goes under its own key: the post is quick (its own PDS, in-process), and KV takes one write a second per key.
       await kv.put(key, 'pending', { expirationTtl: 3 * 86400 })
       let posted
       try {
-        posted = await api.post({ text: out, card: { uri: card.url, title: card.title, description: card.gist } })
+        posted = await api.post(quote ? { text: out, quote } : { text: out, card: { uri: card.url, title: card.title, description: card.gist } })
       } catch (e) {
-        await kv.delete(key) // a failed post to its own PDS didn't go out: the slot may be tried again
+        // a failed post to its own PDS didn't go out: the slot may be tried again (after KV's second)
+        await new Promise((ok) => setTimeout(ok, 1100))
+        await kv.delete(key).catch(() => {})
         throw e
       }
-      await kv.put(key, posted.uri, { expirationTtl: 3 * 86400 })
+      await kv.put(`${key}:post`, posted.uri, { expirationTtl: 3 * 86400 })
       await kv.put('questions:recent', JSON.stringify([String(last.question).trim(), ...recent].slice(0, 12)))
       await rememberRoot(kv, posted, 'question')
-      await writeLog(api, { kind: 'asked', context: 'feed', source: card.url, result: posted.uri, reflection: last?.reflection, themes: last?.themes })
-      return { asked: posted.uri, slot, story: story.label }
+      await writeLog(api, { kind: 'asked', context: 'feed', source: quote ? quote.url : card.url, result: posted.uri, reflection: last?.reflection, themes: last?.themes })
+      return { asked: posted.uri, slot, story: story.label, ...(quote ? { quoted: quote.kind } : {}) }
     }
     return { skipped: 'nothing passed', slot }
   } catch (e) {
@@ -120,4 +129,18 @@ export async function runQuestion({ env, kv, api, model, day, now = new Date() }
     await kv.put(`questions:stories:${day}`, JSON.stringify(asked), { expirationTtl: 2 * 86400 }).catch(() => {})
     await kv.delete(`${key}:lock`).catch(() => {})
   }
+}
+
+/**
+ * The first of a story's articles (most-shared first) with a post autonomist may quote: its publisher's own, or one by
+ * someone who opted in and still does. Returns { uri, cid, kind, url } or null.
+ */
+export async function quotable(kv, articles) {
+  const opted = new Set(((await kv.get('bot:optin', 'json'))?.people || []).filter((p) => !p.bot).map((p) => p.did))
+  for (const a of articles || []) {
+    const q = await kv.get(await quoteKey(a.url), 'json').catch(() => null)
+    if (!q?.uri || !q?.cid) continue
+    if (q.kind === 'publisher' || (q.kind === 'opted-in' && opted.has(q.did))) return { uri: q.uri, cid: q.cid, kind: q.kind, url: a.url }
+  }
+  return null
 }

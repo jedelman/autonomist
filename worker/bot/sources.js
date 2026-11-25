@@ -44,8 +44,25 @@ export function linksFromItem(item) {
   const ext = post.embed?.external || post.embed?.media?.external
   if (ext?.uri) add(ext.uri, ext.title, ext.description)
   for (const f of post.record?.facets || []) for (const feat of f.features || []) if (feat.$type === 'app.bsky.richtext.facet#link' && feat.uri) add(feat.uri)
-  return [...out.values()].map((l) => ({ ...l, handle: post.author?.handle || '', post: post.uri, at: post.indexedAt }))
+  return [...out.values()].map((l) => ({ ...l, handle: post.author?.handle || '', did: post.author?.did || '', post: post.uri, cid: post.cid || '', at: post.indexedAt }))
 }
+
+/**
+ * Whether an account is the publisher of a link: its handle is the link's site, or one of the site's own names
+ * ("theguardian.com" for www.theguardian.com, "bsky.example.com" for example.com). Quote-posts (Jason, 2026-11-25: "let's
+ * have autonomist prefer quote-posts"; his pick: publishers' own posts and opted-in people's) only ever quote these and
+ * the opted-in.
+ */
+export function isPublisher(handle, url) {
+  const h = String(handle || '').toLowerCase()
+  let host
+  try { host = new URL(url).hostname.toLowerCase().replace(/^www\./, '') } catch { return false }
+  if (!h.includes('.') || /\.bsky\.social$/.test(h) || OWN_HANDLES.test(h)) return false
+  return host === h || host.endsWith(`.${h}`) || h.endsWith(`.${host}`)
+}
+
+/** A quotable post of a link (a publisher's own, or an opted-in person's), kept three days. */
+export const quoteKey = async (url) => `quote:${await hashUrl(url)}`
 
 export async function hashUrl(url) {
   const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(url)))
@@ -98,6 +115,11 @@ export async function sweep(api, kv, n, now = Date.now()) {
   if (!list?.follows?.length) return { skipped: 'no follow list yet' }
   const start = Number((await kv.get('bot:follows:cursor')) || 0) % list.follows.length
   let found = 0, read = 0, failed = 0
+  // Workers KV takes one write a second per key: two follows sharing one link in a run would write its key twice, and
+  // the second would throw. So the run gathers each link's merge here and writes every key once, at the end.
+  const merges = new Map()
+  const quotes = new Map()
+  const opted = new Set(((await kv.get('bot:optin', 'json'))?.people || []).filter((p) => !p.bot).map((p) => p.did))
   try {
     for (let k = 0; k < Math.min(n, list.follows.length); k++) {
       const who = list.follows[(start + k) % list.follows.length]
@@ -113,22 +135,36 @@ export async function sweep(api, kv, n, now = Date.now()) {
           try {
             const key = `cand:${await hashUrl(l.url)}`
             // the same link from someone else adds them to its sharers
-            const prev = kv.getWithMetadata ? (await kv.getWithMetadata(key))?.metadata : null
+            const prev = merges.has(key) ? merges.get(key) : kv.getWithMetadata ? (await kv.getWithMetadata(key))?.metadata : null
             const sids = [...new Set([...(prev?.s || []), sid])]
             // a later share that only pastes the bare link has no title: keep the card's title and description; and the
             // latest share time, so a link still being shared today counts today
             const merged = { ...l, title: l.title || prev?.t || '', description: l.description || prev?.d || '', at: prev?.at && prev.at > l.at ? prev.at : l.at }
-            await kv.put(key, '', { metadata: candidateMetadata(merged, sids), expirationTtl: 2 * 86400 })
+            merges.set(key, candidateMetadata(merged, sids))
+            // a post autonomist may quote: the publisher's own, or an opted-in person's (a publisher's is preferred)
+            const kind = isPublisher(l.handle, l.url) ? 'publisher' : opted.has(l.did) ? 'opted-in' : null
+            if (kind && l.post && l.cid) {
+              const qk = await quoteKey(l.url)
+              const had = quotes.get(qk)
+              if (!had || (had.kind !== 'publisher' && kind === 'publisher')) quotes.set(qk, { uri: l.post, cid: l.cid, did: l.did, handle: l.handle, kind, at: l.at })
+            }
             found++
           } catch { failed++ }
         }
       }
     }
   } finally {
+    for (const [key, metadata] of merges) await kv.put(key, '', { metadata, expirationTtl: 2 * 86400 }).catch(() => { failed++ })
+    for (const [key, q] of quotes) {
+      // a publisher's post already kept isn't replaced by an opted-in person's
+      const have = await kv.get(key, 'json').catch(() => null)
+      if (have?.kind === 'publisher' && q.kind !== 'publisher') continue
+      await kv.put(key, JSON.stringify(q), { expirationTtl: 3 * 86400 }).catch(() => { failed++ })
+    }
     // past every account read, even if one of them failed, so the sweep never sticks on one post
     await kv.put('bot:follows:cursor', String((start + read) % list.follows.length))
   }
-  return { read, links: found, ...(failed ? { failed } : {}) }
+  return { read, links: found, ...(quotes.size ? { quotable: quotes.size } : {}), ...(failed ? { failed } : {}) }
 }
 
 /** Candidate links not yet covered, newest first. */

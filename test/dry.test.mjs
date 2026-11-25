@@ -37,7 +37,7 @@ test('dry API: reads pass through; posts and every write are captured, never sen
   assert.deepEqual(sent, ['com.atproto.repo.listRecords'])
   assert.equal(captured.writes.length, 2)
   assert.ok(w.uri.startsWith('at://dry/c/') && p.uri.startsWith('at://dry/'))
-  assert.deepEqual(captured.posts[0], { text: 'hello', card: { uri: 'https://x' }, reply: null, lang: 'en' })
+  assert.deepEqual(captured.posts[0], { text: 'hello', card: { uri: 'https://x' }, quote: null, reply: null, lang: 'en' })
 })
 
 // a small network, real-looking pages, and a model that answers each kind of call

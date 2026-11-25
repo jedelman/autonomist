@@ -81,6 +81,11 @@ NEWSLETTER_FROM = ""
 # Sign-ups per visitor per UTC day, and confirmation emails per UTC day for the whole site.
 NEWSLETTER_PER_VISITOR_DAILY = "5"
 NEWSLETTER_CONFIRMS_DAILY = "100"
+# The knowledge commons' wiki on Lichen (worker/bot/wiki.js; Jason, 2026-11-25: "I'd like to use this wiki as much as
+# possible for shared information - not for messaging"). autonomist writes its terms page and the claims its
+# fact-checks confirmed, as records in its own repository; at most WIKI_DAILY_WRITES a day. Empty turns it off.
+WIKI_URI = "at://did:plc:zz4wcje4a2nbbtc7pdoth3f2/wiki.lichen.wiki/public-knowledge"
+WIKI_DAILY_WRITES = "6"
 # Its daily dream, from this UTC hour on (7 = 2 AM New York in winter; dream.js).
 BOT_DREAM_HOUR_UTC = "7"
 # Problem-posing questions on its own feed, one at each of these UTC hours (16, 20 = 11 AM, 3 PM New York in winter).

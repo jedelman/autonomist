@@ -14,6 +14,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
+    "@atcute/lexicons": "2.1.1",
+    "@atcute/tid": "1.1.4",
+    "@lichen-wiki/client": "0.3.0",
     "@noble/curves": "1.9.7",
     "@pdsjs/cloudflare": "2.5.2",
     "@pdsjs/core": "2.5.2"

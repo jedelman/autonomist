@@ -19,6 +19,7 @@ import { recheckEntries } from './journal.js'
 import { runDigest } from './digest.js'
 import { maybeDryRun, scheduledDry } from './dry.js'
 import { sendNewsletter } from '../newsletter.js'
+import { runWiki } from './wiki.js'
 import { setting } from '../limits.js'
 
 export const FAST = '*/5 * * * *'
@@ -90,5 +91,7 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
     // once a day, a slower reflection, folded into the memory right after
     await inTime('dream', () => runDream({ env, kv, api, model, day, now }))
     await inTime('memory', () => foldMemory({ kv, api, model }))
+    // the knowledge commons' wiki: its terms page, and the claims its fact-checks confirmed (wiki.js)
+    await inTime('wiki', () => runWiki({ env, kv, api, now: now.getTime() }))
   }
 }

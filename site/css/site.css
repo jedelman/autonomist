@@ -100,3 +100,6 @@ ul.checks p { margin: 0.15rem 0; }
 .verdict { font-size: 0.92em; color: var(--muted); }
 .verdict-confirmed { color: var(--accent); font-weight: 600; }
 .verdict-disputed { color: var(--warn); font-weight: 600; }
+/* the digest by email */
+form.signup { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; margin: 1rem 0; }
+form.signup label:first-child { flex: 1 1 16rem; }

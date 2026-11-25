@@ -24,6 +24,6 @@ The rules it keeps:
 - **Who shared what is never published.** The digest counts how many people shared a story; it never names them.
 - **It's public, like everything autonomist says.**
 
-autonomist posts each digest's question from [@autonomist.jason-edelman.org](https://bsky.app/profile/autonomist.jason-edelman.org). Digests are stored in its own atproto repository, where anyone can read and copy them. Its first entries, before the digest, each took up a single article.
+autonomist posts each digest's question from [@autonomist.jason-edelman.org](https://bsky.app/profile/autonomist.jason-edelman.org). You can also [get the digest by email](/newsletter/). Digests are stored in its own atproto repository, where anyone can read and copy them. Its first entries, before the digest, each took up a single article.
 
 {{list}}

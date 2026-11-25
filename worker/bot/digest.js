@@ -22,6 +22,7 @@ import { graphemes } from './text.js'
 import { IDENTITY, VOICE } from './voice.js'
 import { REFLECTION_FIELDS, REFLECTION_RULES, writeLog, memoryNote } from './log.js'
 import { CHECKER_VERSION, siteOf } from './factcheck.js'
+import { queueKey } from '../newsletter.js'
 
 const DAY = 86400_000
 const n = (x) => Number(x).toLocaleString('en-US')
@@ -329,6 +330,8 @@ export async function finishPublish({ kv, api, day, pending }) {
   await api.call('POST', 'com.atproto.repo.putRecord', { body: { repo: s.did, collection: COLLECTION, rkey: pending.slug, record: pending.record } })
   await kv.put(`journal:done:${day}`, pending.slug, { expirationTtl: 3 * 86400 })
   if (!(await kv.get(`journal:announce:${day}`))) await kv.put(`journal:announce:${day}`, JSON.stringify(pending.announcement), { expirationTtl: 3 * 86400 })
+  // the newsletter sends this record as it is (newsletter.js), once; a dry run's queue stays in its scratch layer
+  if (!(await kv.get(queueKey(day)))) await kv.put(queueKey(day), JSON.stringify({ slug: pending.slug, url: pending.url, uri: `at://${s.did}/${COLLECTION}/${pending.slug}`, record: pending.record }), { expirationTtl: 2 * 86400 })
   await kv.delete(`journal:pending:${day}`).catch(() => {})
   return { slug: pending.slug, url: pending.url, published: pending.slug }
 }

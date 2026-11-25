@@ -72,6 +72,14 @@ BOT_DIGEST_PER_STORY = "6"
 # real run would produce but as test artifacts, never posted"). "digest": the day's digest and its two feed questions
 # become a dry-run artifact on the steward's page instead of being published. Remove it to go live.
 BOT_DRY = "digest"
+# The digest by email (worker/newsletter.js; Jason, 2026-11-25: "Let's also use Resend to make this a newsletter"). Off
+# until all three are set: the secret RESEND_API_KEY (`npx wrangler secret put RESEND_API_KEY`), the Resend segment
+# subscribers are added to, and the sender, on a domain verified in Resend. One broadcast per published digest.
+RESEND_SEGMENT_ID = ""
+NEWSLETTER_FROM = ""
+# Sign-ups per visitor per UTC day, and confirmation emails per UTC day for the whole site.
+NEWSLETTER_PER_VISITOR_DAILY = "5"
+NEWSLETTER_CONFIRMS_DAILY = "100"
 # Its daily dream, from this UTC hour on (7 = 2 AM New York in winter; dream.js).
 BOT_DREAM_HOUR_UTC = "7"
 # Problem-posing questions on its own feed, one at each of these UTC hours (16, 20 = 11 AM, 3 PM New York in winter).

@@ -67,11 +67,19 @@
       const pages = (a.pages || []).map((rkey) => el('li', {}, el('a', { href: `/api/admin/dry-run/${x.id}/page/${rkey}`, target: '_blank', rel: 'noopener' }, rkey)))
       const posts = (a.posts || []).map((p) => el('li', {}, el('p', {}, p.text), p.card ? el('p', { class: 'muted' }, `card: ${p.card.uri}`) : ''))
       const steps = (a.steps || []).map((s) => el('li', {}, `${s.ok ? '' : 'FAILED '}${s.name}: ${s.ok ? JSON.stringify(s.result) : s.error} (${Math.round(s.ms / 1000)}s)`))
+      // the email subscribers would have got: a download (it reads right opened from disk), or sent to the steward alone
+      let email = ''
+      if (a.email) {
+        const send = el('button', { type: 'button', class: 'secondary' }, 'Email it to me')
+        send.addEventListener('click', async () => { send.disabled = true; try { say((await api(`dry-run/${x.id}/email`, {})).note) } catch (e) { say(e.message, true) } finally { send.disabled = false } })
+        email = el('p', {}, `The email subscribers would have got (“${a.email.subject}”): `, el('a', { href: `/api/admin/dry-run/${x.id}/email` }, 'Download'), ' ', send)
+      }
       return el('div', { class: 'note' },
         el('h3', {}, `${String(a.at).replace('T', ' ').slice(0, 16)} UTC · ${a.what.join(', ')}`),
         el('p', { class: 'muted' }, `${Math.round(a.ms / 1000)}s · $${a.spend} · ${a.posts.length} posts and ${a.writes.length} records captured, none sent`),
         pages.length ? el('p', {}, 'Pages it would have published:') : '', pages.length ? el('ul', {}, pages) : '',
         posts.length ? el('p', {}, 'Posts it would have made:') : '', posts.length ? el('ul', {}, posts) : '',
+        email,
         el('details', {}, el('summary', {}, 'Steps'), el('ul', {}, steps)),
         el('p', {}, el('a', { href: `/api/admin/dry-run/${x.id}`, target: '_blank', rel: 'noopener' }, 'Everything, as JSON')))
     }))

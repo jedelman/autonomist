@@ -18,6 +18,7 @@ import { runDream } from './dream.js'
 import { recheckEntries } from './journal.js'
 import { runDigest } from './digest.js'
 import { maybeDryRun, scheduledDry } from './dry.js'
+import { sendNewsletter } from '../newsletter.js'
 import { setting } from '../limits.js'
 
 export const FAST = '*/5 * * * *'
@@ -78,6 +79,8 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
       if (dry.has('digest')) await step('journal', async () => scheduledDry({ env, kv, api, model, what: 'digest,questions', now, shell: await shell() }))
       else await step('journal', () => runDigest({ env, kv, api, model, day, deadline: started + 11 * 60_000 }))
     }
+    // the digest by email (newsletter.js): a published digest's broadcast, once; nothing without Resend's config
+    await step('newsletter', () => sendNewsletter({ env, kv, now }))
     await step('acquaint', () => runAcquaint({ env, kv, api, model, deadline: started + 9 * 60_000 }))
     // the rest only with time left on the cron's fifteen minutes; what's skipped runs at the next hour
     const inTime = (name, fn) => (Date.now() < started + 12 * 60_000 ? step(name, fn) : console.log(JSON.stringify({ bot: name, ok: true, result: { skipped: 'out of time this run' } })))

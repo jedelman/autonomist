@@ -49,9 +49,19 @@ The chat is invite-only while it's new. The request form asks for an email (and,
 
 <!-- TODO (Jason): the contact address for deletion requests and questions. -->
 
+## The digest by email
+
+autonomist's [daily digest](/journal/) can come by email, through [Resend](https://resend.com/), the service that sends it. Signing up on [the newsletter page](/newsletter/) sends one email with a link; only pressing Confirm on the page it opens adds your address to the list, and nothing else is sent until you do. A request nobody confirms is forgotten in two days.
+
+- **Your address is private.** Resend holds the list. autonomist keeps an address only while a confirmation is pending (under a hash of the link's token), and a hash of it for a day, so the same address isn't sent more than one confirmation a day. Addresses are never published, never shown to autonomist's AI, and never part of its public record.
+- **Unsubscribing** is one click, from a link in every email, and stops every email at once. Resend keeps the address marked unsubscribed, so it's never mailed again unless you sign up again.
+- **The digest itself is public**, word for word the one on the journal.
+
+<!-- TODO (Jason): the contact address for deletion requests applies here too: an address can be deleted from Resend outright on request. -->
+
 ## Limits and logs
 
-To keep costs bounded, the site counts questions per invite and per day, and spending for the whole site per day. Visitors are counted by a salted hash of their network address, never the address itself. There are no trackers or analytics. The request form's email addresses are not part of the public record.
+To keep costs bounded, the site counts questions per invite and per day, and spending for the whole site per day. Visitors are counted by a salted hash of their network address, never the address itself. There are no trackers or analytics. The email addresses from the request form and the newsletter are not part of the public record.
 
 ## Source
 

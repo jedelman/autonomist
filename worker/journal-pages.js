@@ -36,7 +36,7 @@ ${render(clean(rec.body), { allowLink })}
 ${checkedHtml(rec.checks?.claims, rec.checks)}<p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the article and the Power Explained pages it cites (${Number(rec.checks?.quotes || 0)} quotations, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
 }
 
-function checkedHtml(claims, checks = {}) {
+export function checkedHtml(claims, checks = {}, { digest = false } = {}) {
   const html = checksHtml(claims)
   const VERDICT = { confirmed: 'confirmed', supported: 'supported by one source', disputed: 'disputed', unsettled: 'unsettled', unverified: 'unverified' }
   const before = Array.isArray(checks.superseded) && checks.superseded.length && checks.rechecked
@@ -44,7 +44,9 @@ function checkedHtml(claims, checks = {}) {
 `
     : ''
   return html ? `<h2>Checked against other sources</h2>
-<p class="muted">After writing the entry, autonomist searched the web for other sources on claims the article makes. A source counts only if autonomist's own code fetched the page, where its publisher allows that, and found the cited words on it. The article's own site doesn't count, nor a page that repeats the article word for word, and a claim is confirmed only when two independent sites support it.</p>
+<p class="muted">${digest
+    ? "After writing the digest, autonomist searched the web for other sources on claims it makes. A source counts only if autonomist's own code fetched the page, where its publisher allows that, and found the cited words on it. The sites of the articles it read don't count, nor a page that repeats one word for word, and a claim is confirmed only when two independent sites support it."
+    : "After writing the entry, autonomist searched the web for other sources on claims the article makes. A source counts only if autonomist's own code fetched the page, where its publisher allows that, and found the cited words on it. The article's own site doesn't count, nor a page that repeats the article word for word, and a claim is confirmed only when two independent sites support it."}</p>
 ${before}${html}
 ` : ''
 }
@@ -58,7 +60,8 @@ function digestHtml(rec, { uri, origin }) {
   return `<h1>${esc(rec.title)}</h1>
 <p class="byline">autonomist's digest · ${esc(rec.date)} · from ${num(net.read)} article${Number(net.read) === 1 ? '' : 's'} across ${num((net.stories || []).length)} ${(net.stories || []).length === 1 ? 'story' : 'stories'}</p>
 ${render(clean(rec.body), { allowLink })}
-${networkHtml(net)}${checkedHtml(rec.checks?.claims, rec.checks)}<p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the ${num(net.read)} articles it read, the Power Explained pages it cites, and its own counts (${Number(rec.checks?.quotes || 0)} quotations from ${Number(rec.checks?.articlesQuoted || 0)} articles, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
+${networkHtml(net)}${checkedHtml(rec.checks?.claims, rec.checks, { digest: true })}<p><a href="/newsletter/">Get the digest by email</a>, once a day.</p>
+<p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the ${num(net.read)} articles it read, the Power Explained pages it cites, and its own counts (${Number(rec.checks?.quotes || 0)} quotations from ${Number(rec.checks?.articlesQuoted || 0)} articles, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
 }
 
 export function fillShell(shell, { title, description, content }) {

@@ -98,6 +98,9 @@ test('dry run: the digest and its questions, as they would be published, with no
   const page = Object.values(a.pages)[0]
   assert.ok(page.includes('[dry run] Rents frozen, land sold') && page.includes('nothing here was published') && page.includes('What the network shared'))
   assert.equal(a.notes[0].label, 'Rent freezes')
+  // the email subscribers would have got, built from the scratch layer's queue and never sent (nothing reached Resend)
+  assert.equal(a.email.subject, 'Rents frozen, land sold')
+  assert.ok(a.email.html.includes('{{{RESEND_UNSUBSCRIBE_URL}}}') && a.email.text.includes('What the network shared'.toUpperCase()))
   // the real KV gained only the artifact and its index: no day marked done, no recent questions, no covered links
   const added = [...kv.m.keys()].filter((k) => !realKeys.has(k)).sort()
   assert.deepEqual(added, ['dryrun:index', `dryrun:result:${r.dryRun}`])

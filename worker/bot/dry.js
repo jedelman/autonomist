@@ -9,7 +9,8 @@
 // stays valid for the real bot.
 //
 // What a run produced is stored as an artifact (`dryrun:result:<id>`, two weeks): the steps and their timings, every
-// record and post it would have written, the pages it would have published, the notes behind a digest, and the spend.
+// record and post it would have written, the pages it would have published, the email subscribers would have got, the
+// notes behind a digest, and the spend.
 // The steward's page shows them; `node scripts/dry-run.mjs` fetches them as files.
 //
 // Two ways in: a request (`dryrun:request`, from the steward's page or the script), picked up by the next five-minute
@@ -22,6 +23,7 @@ import { foldMemory } from './log.js'
 import { runAcquaint } from './acquaint.js'
 import { COLLECTION } from './journal.js'
 import { entryHtml, fillShell } from '../journal-pages.js'
+import { digestEmail, queueKey } from '../newsletter.js'
 
 export const PIPELINES = ['digest', 'questions', 'dream', 'notes']
 
@@ -128,6 +130,9 @@ export async function runDry({ env, kv, api, model, what = 'digest,questions', n
     const content = entryHtml(w.record, { uri: `at://dry/${COLLECTION}/${w.rkey}`, origin })
     pages[w.rkey] = shell ? fillShell(shell, { title: `[dry run] ${w.record.title} · autonomist`, description: w.record.summary || '', content: `<p class="note">A dry run: nothing here was published or posted.</p>\n${content}` }) : content
   }
+  // the email subscribers would have got: built from the queue the digest left in the scratch layer, never sent
+  const queued = dkv.over.get(queueKey(day))
+  const email = queued?.v ? (({ slug, uri, record }) => digestEmail({ ...record, slug }, { origin, uri }))(JSON.parse(queued.v)) : null
   const digest = dkv.over.get(`digest:day:${day}`)
   const notes = digest?.v ? JSON.parse(digest.v).stories.map((s) => ({ label: s.label, sharers: s.sharers, articles: s.articles.map((a) => ({ url: a.url, title: a.title, outlet: a.outlet, gist: a.gist, quotes: a.quotes })) })) : null
   const artifact = {
@@ -141,11 +146,12 @@ export async function runDry({ env, kv, api, model, what = 'digest,questions', n
     posts: captured.posts,
     writes: captured.writes,
     pages,
+    email,
     notes,
   }
   await kv.put(`dryrun:result:${id}`, JSON.stringify(artifact), { expirationTtl: 14 * 86400 })
   const index = ((await kv.get('dryrun:index', 'json')) || []).filter((x) => x.id !== id)
-  index.unshift({ id, at: artifact.at, what: artifact.what, ms: artifact.ms, spend: artifact.spend, posts: captured.posts.length, writes: captured.writes.length, ok: steps.every((s) => s.ok) })
+  index.unshift({ id, at: artifact.at, what: artifact.what, ms: artifact.ms, spend: artifact.spend, posts: captured.posts.length, writes: captured.writes.length, email: Boolean(email), ok: steps.every((s) => s.ok) })
   await kv.put('dryrun:index', JSON.stringify(index.slice(0, 30)))
   return { dryRun: id, what: artifact.what, ms: artifact.ms, posts: captured.posts.length, writes: captured.writes.length, spend: artifact.spend }
 }

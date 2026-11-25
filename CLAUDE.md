@@ -122,7 +122,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     under robots.txt, real priced model calls, but every post and record write is captured (`dryApi`) and the pipelines'
     own state goes to a scratch layer (`dryKV`: finished-today keys hidden, writes kept; only the daily search count
     passes through). The artifact (`dryrun:result:<id>`, two weeks; `dryrun:index`) holds the steps and timings, every
-    post and record it would have made, the pages as published, the notes behind a digest, and the spend. Requested from
+    post and record it would have made, the pages as published, the email subscribers would have got (never sent; the
+    steward's page can download it or email it to the steward alone), the notes behind a digest, and the spend. Requested from
     the steward's page or `node scripts/dry-run.mjs request [digest,questions|dream|notes|all]` (`dryrun:request`, taken
     by the next five-minute run, one at a time); fetched with `node scripts/dry-run.mjs fetch latest --wait` into
     `dry-runs/<id>/` (git-ignored). `BOT_DRY` names scheduled pipelines that run dry daily until taken out: `digest`
@@ -248,6 +249,24 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     (`output_config.format`), which works with Haiku 5.5's thinking.
   - **Session:** kept in KV and refreshed; it logs in only for a token pds.js won't accept, and counts logins
     (`bot:logins:<day>`).
+- **The digest by email** (Jason, 2026-11-25: "Let's also use Resend to make this a newsletter"; `worker/newsletter.js`).
+  Off until `RESEND_API_KEY` (a secret Jason sets), `RESEND_SEGMENT_ID` and `NEWSLETTER_FROM` are all set.
+  - **Double opt-in.** `/newsletter/` posts an address; one confirmation email goes to it; only pressing Confirm on
+    `/newsletter/confirm/` adds it to the segment. The token rides in the link's #fragment and confirming takes a
+    press, so a mail scanner fetching the link confirms nothing. Bounded by a honeypot, `NEWSLETTER_PER_VISITOR_DAILY`,
+    one confirmation per address a day (`nl:asked:<hash>`), and `NEWSLETTER_CONFIRMS_DAILY` for the site; the answer is
+    the same whether or not an address is known.
+  - **Addresses are private, and never reach the model.** Resend holds the list. KV holds an address only while its
+    confirmation is pending (`nl:pending:<hash of token>`, two days). Never put an address in a log, a record, a prompt
+    or a public page. Like the request form's waitlist, it's private data about a person: keep it this small.
+  - **One broadcast per published digest.** `finishPublish` queues the record (`newsletter:queue:<day>`); the hourly
+    `newsletter` step creates a draft, keeps its id (`newsletter:state:<slug>`), reads its status, and sends it only
+    while it's still a draft, so a run cut short never sends twice (Resend's idempotency keys don't cover broadcasts).
+    Retried hourly, four tries at most.
+  - **The email is the page's words.** `digestEmail` renders the record's own body, "What the network shared" and the
+    checks, with inline styles, a text part, the public-interest notice and Resend's unsubscribe link. Anything that
+    reads as a Resend template tag (`{{`) is broken up. It never invites replies by email: talking happens on Bluesky,
+    in public.
 - **Keep these projects separate unless Jason links them:** Ghent Streets (Jason, 2026-11-20).
 
 ## Layout
@@ -257,7 +276,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   prompt), `thread.js` and `memory.js` (each invite's one conversation and its memory), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
   2026-11-20), `invites.js` and `limits.js` (adapted from Siren's, MIT), `journal-core.js` (the journal's checks, shared with
   the script), `journal-pages.js` (pages for entries in its repository), `thinking-pages.js` (the run journal and memory
-  at `/thinking/`, and that page's CSP), `checks-html.js` (fact-checks on both pages), `bot/` (autonomist on Bluesky; `digest.js` the daily digest, `voice.js` who it is).
+  at `/thinking/`, and that page's CSP), `checks-html.js` (fact-checks on both pages), `bot/` (autonomist on Bluesky; `digest.js` the daily digest, `voice.js` who it is), `newsletter.js` (the digest by
+  email, through Resend).
 - `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers, case
   studies and the journal; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on
   deploy); `scripts/invites.mjs` the steward's CLI; `scripts/birth.mjs` gives an agent its account on its own PDS

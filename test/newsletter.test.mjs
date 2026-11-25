@@ -2,12 +2,27 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { memoryKV, assets } from './helpers.mjs'
-import { digestEmail, styleEmail, plainText, subscribe, confirm, sendNewsletter, previewToSteward, queueKey, newsletterReady, UNSUBSCRIBE } from '../worker/newsletter.js'
+import { digestEmail, styleEmail, plainText, subscribe, confirm, sendNewsletter, previewToSteward, queueKey, newsletterReady, inboxOf, UNSUBSCRIBE } from '../worker/newsletter.js'
 import { finishPublish } from '../worker/bot/digest.js'
 import { sha256hex } from '../worker/invites.js'
 import worker from '../worker/index.js'
 
-const env = (extra = {}) => ({ KV: memoryKV(), RESEND_API_KEY: 're_test', RESEND_SEGMENT_ID: 'seg-1', NEWSLETTER_FROM: 'autonomist <digest@example.org>', PUBLIC_ORIGIN: 'https://autonomist.test', ...extra })
+/**
+ * KV that holds to Workers KV's limit of one write a second per key: a second write (or delete) to a key throws, as
+ * Cloudflare's does ("KV PUT failed: 429"). Time moves only when `clock.t` does (a test's sleep advances it), so any
+ * key written twice in one request or run fails the test.
+ */
+function strictKV(clock = { t: 0 }) {
+  const kv = memoryKV()
+  const last = new Map()
+  const guard = (k) => {
+    if (last.has(k) && clock.t - last.get(k) < 1000) throw new Error(`KV PUT failed: 429 Too Many Requests (${k})`)
+    last.set(k, clock.t)
+  }
+  return { ...kv, m: kv.m, clock, async put(k, v, o) { guard(k); return kv.put(k, v, o) }, async delete(k) { guard(k); return kv.delete(k) } }
+}
+const env = (extra = {}) => ({ KV: strictKV(), IP_SALT: 'salt', RESEND_API_KEY: 're_test', RESEND_SEGMENT_ID: 'seg-1', NEWSLETTER_FROM: 'autonomist <digest@example.org>', PUBLIC_ORIGIN: 'https://autonomist.test', ...extra })
+const noSleep = async () => {}
 
 /** A fake Resend: answers by method and path, and keeps every call. */
 function fakeResend(routes = {}) {
@@ -71,11 +86,11 @@ test('styleEmail keeps attributes, drops classes and ids, and mutes what the pag
 
 test('sign-up: off without config; the honeypot and a bad address send nothing', async () => {
   const { f, calls } = fakeResend()
-  assert.equal((await subscribe({ env: env({ RESEND_API_KEY: '' }), body: { email: 'a@b.org' }, visitor: 'v', fetch: f })).status, 503)
+  assert.equal((await subscribe({ env: env({ RESEND_API_KEY: '' }), body: { email: 'a@b.org' }, visitor: 'v', fetch: f, sleep: noSleep })).status, 503)
   assert.equal(newsletterReady(env({ NEWSLETTER_FROM: '' })), false)
   const e = env()
-  assert.equal((await subscribe({ env: e, body: { email: 'a@b.org', website: 'spam' }, visitor: 'v', fetch: f })).status, 200)
-  assert.equal((await subscribe({ env: e, body: { email: 'not an address' }, visitor: 'v', fetch: f })).status, 400)
+  assert.equal((await subscribe({ env: e, body: { email: 'a@b.org', website: 'spam' }, visitor: 'v', fetch: f, sleep: noSleep })).status, 200)
+  assert.equal((await subscribe({ env: e, body: { email: 'not an address' }, visitor: 'v', fetch: f, sleep: noSleep })).status, 400)
   assert.equal(calls.length, 0)
   assert.equal([...e.KV.m.keys()].filter((k) => k.startsWith('nl:pending:')).length, 0)
 })
@@ -83,7 +98,7 @@ test('sign-up: off without config; the honeypot and a bad address send nothing',
 test('sign-up: one confirmation, with the token only in the link’s fragment; asking again sends nothing and says the same', async () => {
   const { f, calls } = fakeResend({ 'POST /emails': [200, { id: 'em-1' }] })
   const e = env()
-  const r = await subscribe({ env: e, body: { email: ' A@B.org ' }, visitor: 'v', fetch: f })
+  const r = await subscribe({ env: e, body: { email: ' A@B.org ' }, visitor: 'v', fetch: f, sleep: noSleep })
   assert.equal(r.status, 200)
   assert.equal(calls.length, 1)
   const c = calls[0]
@@ -97,55 +112,87 @@ test('sign-up: one confirmation, with the token only in the link’s fragment; a
   // kept under a hash of the token, never the token
   assert.deepEqual(await e.KV.get(`nl:pending:${await sha256hex(t)}`, 'json').then((x) => x.email), 'a@b.org')
   assert.ok(![...e.KV.m.keys()].some((k) => k.includes(t)))
-  const again = await subscribe({ env: e, body: { email: 'a@b.org' }, visitor: 'w', fetch: f })
+  const again = await subscribe({ env: e, body: { email: 'a@b.org' }, visitor: 'w', fetch: f, sleep: noSleep })
   assert.deepEqual(again, r)
   assert.equal(calls.length, 1)
+})
+
+test('sign-up: one confirmation per inbox, whatever the +tag or Gmail dots', async () => {
+  assert.equal(inboxOf('Victim+news@Example.org'), 'victim@example.org')
+  assert.equal(inboxOf('v.i.c.t.i.m+1@googlemail.com'), 'victim@gmail.com')
+  const { f, calls } = fakeResend({ 'POST /emails': [200, { id: 'em' }] })
+  const e = env()
+  for (const [n, address] of ['victim+1@gmail.com', 'victim+2@gmail.com', 'vic.tim@gmail.com'].entries()) {
+    assert.equal((await subscribe({ env: e, body: { email: address }, visitor: `v${n}`, fetch: f, sleep: noSleep })).status, 200)
+  }
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0].body.to, ['victim+1@gmail.com'], 'the email goes to the address as typed')
+  // the mark is keyed with the salt: the plain address's hash isn't in KV
+  assert.ok(![...e.KV.m.keys()].some((k) => k.includes('victim')))
 })
 
 test('sign-up: limits per visitor and for the whole site; a failed send leaves nothing pending', async () => {
   const { f } = fakeResend({ 'POST /emails': [200, { id: 'em' }] })
   const e = env({ NEWSLETTER_PER_VISITOR_DAILY: '2', NEWSLETTER_CONFIRMS_DAILY: '3' })
-  for (const n of [1, 2]) assert.equal((await subscribe({ env: e, body: { email: `p${n}@b.org` }, visitor: 'v', fetch: f })).status, 200)
-  assert.equal((await subscribe({ env: e, body: { email: 'p3@b.org' }, visitor: 'v', fetch: f })).status, 429)
-  assert.equal((await subscribe({ env: e, body: { email: 'p4@b.org' }, visitor: 'w', fetch: f })).status, 200)
-  const capped = await subscribe({ env: e, body: { email: 'p5@b.org' }, visitor: 'x', fetch: f })
+  for (const n of [1, 2]) assert.equal((await subscribe({ env: e, body: { email: `p${n}@b.org` }, visitor: 'v', fetch: f, sleep: noSleep })).status, 200)
+  assert.equal((await subscribe({ env: e, body: { email: 'p3@b.org' }, visitor: 'v', fetch: f, sleep: noSleep })).status, 429)
+  assert.equal((await subscribe({ env: e, body: { email: 'p4@b.org' }, visitor: 'w', fetch: f, sleep: noSleep })).status, 200)
+  const capped = await subscribe({ env: e, body: { email: 'p5@b.org' }, visitor: 'x', fetch: f, sleep: noSleep })
   assert.equal(capped.status, 429)
   assert.match(capped.body.error, /paused/)
   const bad = fakeResend({ 'POST /emails': [422, { name: 'validation_error', message: 'domain not verified' }] })
   const e2 = env()
-  const out = await subscribe({ env: e2, body: { email: 'z@b.org' }, visitor: 'v', fetch: bad.f })
+  // the failed send waits out KV's one-write-a-second before forgetting what it marked
+  const sleep = async (ms) => { e2.KV.clock.t += ms }
+  const out = await subscribe({ env: e2, body: { email: 'z@b.org' }, visitor: 'v', fetch: bad.f, sleep })
   assert.equal(out.status, 502)
   assert.ok(![...e2.KV.m.keys()].some((k) => k.startsWith('nl:pending:') || k.startsWith('nl:asked:')))
+  // so the same address can try again, in a later request
+  e2.KV.clock.t += 5000
+  const good = fakeResend({ 'POST /emails': [200, { id: 'em' }] })
+  assert.equal((await subscribe({ env: e2, body: { email: 'z@b.org' }, visitor: 'v', fetch: good.f, sleep })).status, 200)
+  assert.equal(good.calls.length, 1)
 })
 
 async function pendingToken(e, email = 'a@b.org') {
   const { f, calls } = fakeResend({ 'POST /emails': [200, { id: 'em' }] })
-  await subscribe({ env: e, body: { email }, visitor: 'v', fetch: f })
+  await subscribe({ env: e, body: { email }, visitor: 'v', fetch: f, sleep: noSleep })
+  e.KV.clock.t += 60_000 // the link is opened later, in another request
   return calls[0].body.text.match(/#t=([A-Za-z0-9_-]{43})/)[1]
 }
 
 test('confirm: adds the address to the segment once; a bad, used or unknown token adds nothing', async () => {
   const e = env()
   const t = await pendingToken(e)
-  const { f, calls } = fakeResend({ 'POST /contacts': [201, { object: 'contact', id: 'c-1' }] })
+  const { f, calls } = fakeResend({ 'POST /contacts': [201, { object: 'contact', id: 'c-1' }], 'GET /contacts/a@b.org': [200, { id: 'c-1', unsubscribed: false }], 'GET /contacts/c-1/segments': [200, { data: [{ id: 'seg-1' }] }] })
   assert.equal((await confirm({ env: e, body: { token: 'short' }, fetch: f })).status, 400)
   assert.equal((await confirm({ env: e, body: { token: 'A'.repeat(43) }, fetch: f })).status, 400)
   assert.equal(calls.length, 0)
   const ok = await confirm({ env: e, body: { token: t }, fetch: f })
   assert.equal(ok.status, 200)
   assert.deepEqual(calls[0].body, { email: 'a@b.org', unsubscribed: false, segments: [{ id: 'seg-1' }] })
+  // read back: subscribed and in the segment, so nothing more to fix
+  assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), ['POST /contacts', 'GET /contacts/a@b.org', 'GET /contacts/c-1/segments'])
   assert.equal((await confirm({ env: e, body: { token: t }, fetch: f })).status, 400)
-  assert.equal(calls.length, 1)
+  assert.equal(calls.length, 3)
 })
 
 test('confirm: an address already a contact (or unsubscribed before) is subscribed again and added to the segment', async () => {
-  const e = env()
-  const t = await pendingToken(e)
-  const { f, calls } = fakeResend({ 'POST /contacts': [409, { name: 'conflict' }], 'PATCH /contacts/a%40b.org': [200, { id: 'c-1' }], 'POST /contacts/a%40b.org/segments/seg-1': [200, { id: 'seg-1' }] })
-  const ok = await confirm({ env: e, body: { token: t }, fetch: f })
-  assert.equal(ok.status, 200, JSON.stringify(calls))
-  assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), ['POST /contacts', 'PATCH /contacts/a%40b.org', 'POST /contacts/a%40b.org/segments/seg-1'])
-  assert.deepEqual(calls[1].body, { unsubscribed: false })
+  // whatever creating says (here a conflict, then a plain 200; Resend's docs don't say), the contact is read back and fixed
+  for (const create of [[409, { name: 'conflict' }], [200, { id: 'c-1' }]]) {
+    const e1 = env()
+    const t1 = await pendingToken(e1)
+    const { f, calls } = fakeResend({ 'POST /contacts': create, 'GET /contacts/a@b.org': [200, { id: 'c-1', unsubscribed: true }], 'PATCH /contacts/c-1': [200, { id: 'c-1' }], 'GET /contacts/c-1/segments': [200, { data: [{ id: 'other' }], has_more: false }], 'POST /contacts/c-1/segments/seg-1': [200, { id: 'seg-1' }] })
+    const ok = await confirm({ env: e1, body: { token: t1 }, fetch: f })
+    assert.equal(ok.status, 200, JSON.stringify(calls))
+    assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), ['POST /contacts', 'GET /contacts/a@b.org', 'PATCH /contacts/c-1', 'GET /contacts/c-1/segments', 'POST /contacts/c-1/segments/seg-1'])
+    assert.deepEqual(calls[2].body, { unsubscribed: false })
+  }
+  // an address with a +tag goes in the path as written
+  const e3 = env()
+  const t3 = await pendingToken(e3, 'a+news@b.org')
+  const plus = fakeResend({ 'POST /contacts': [201, { id: 'c-3' }], 'GET /contacts/a+news@b.org': [200, { id: 'c-3', unsubscribed: false }], 'GET /contacts/c-3/segments': [200, { data: [{ id: 'seg-1' }] }] })
+  assert.equal((await confirm({ env: e3, body: { token: t3 }, fetch: plus.f })).status, 200, JSON.stringify(plus.calls))
   // Resend down: the pending address stays, so the same link works later
   const e2 = env()
   const t2 = await pendingToken(e2)
@@ -154,8 +201,11 @@ test('confirm: an address already a contact (or unsubscribed before) is subscrib
   assert.ok([...e2.KV.m.keys()].some((k) => k.startsWith('nl:pending:')))
 })
 
-test('a published digest queues its record for the newsletter, once, with its at:// uri', async () => {
-  const kv = memoryKV()
+test('a published digest queues its record for the newsletter, once, with its at:// uri, before the day is marked done', async () => {
+  const kv = strictKV()
+  const order = []
+  const put = kv.put
+  kv.put = async (k, v, o) => { order.push(k); return put(k, v, o) }
   const api = { session: async () => ({ did: 'did:plc:me' }), call: async () => ({}) }
   const pending = { slug: '2026-11-25-rents', url: 'https://autonomist.test/journal/2026-11-25-rents/', record: RECORD, announcement: { slug: '2026-11-25-rents' } }
   await finishPublish({ kv, api, day: '2026-11-25', pending })
@@ -163,19 +213,23 @@ test('a published digest queues its record for the newsletter, once, with its at
   assert.equal(q.slug, '2026-11-25-rents')
   assert.equal(q.uri, 'at://did:plc:me/org.jason-edelman.autonomist.journal/2026-11-25-rents')
   assert.equal(q.record.title, RECORD.title)
+  // a run killed after marking the day done would never queue it: so the queue comes first
+  assert.ok(order.indexOf(queueKey('2026-11-25')) < order.indexOf('journal:done:2026-11-25'), order.join(' '))
 })
 
 async function queued(kv, day = '2026-11-25') {
   await kv.put(queueKey(day), JSON.stringify({ slug: `${day}-rents`, url: 'u', uri: 'at://x', record: { ...RECORD, date: day } }))
 }
 
-test('sending: one broadcast per digest, as a draft first, sent only while it is still a draft', async () => {
+test('sending: one broadcast per digest, as a draft first, sent only while it is still a draft, each key written once', async () => {
   const now = new Date('2026-11-25T14:07:00Z')
   const none = fakeResend()
   assert.deepEqual(await sendNewsletter({ env: env({ RESEND_SEGMENT_ID: '' }), kv: memoryKV(), now, fetch: none.f }), { skipped: 'not configured' })
   const e = env()
   assert.deepEqual(await sendNewsletter({ env: e, kv: e.KV, now, fetch: none.f }), { none: true })
   assert.equal(none.calls.length, 0)
+  // queued by the journal step moments before, in the same run: the clock doesn't move, so every key the send
+  // writes must be a new one (strictKV throws on a second write)
   await queued(e.KV)
   const { f, calls } = fakeResend({ 'POST /broadcasts': [201, { object: 'broadcast', id: 'b-1' }], 'GET /broadcasts/b-1': [200, { id: 'b-1', status: 'draft' }], 'POST /broadcasts/b-1/send': [200, { id: 'b-1' }] })
   const r = await sendNewsletter({ env: e, kv: e.KV, now, fetch: f })
@@ -186,30 +240,37 @@ test('sending: one broadcast per digest, as a draft first, sent only while it is
   assert.equal(b.from, 'autonomist <digest@example.org>')
   assert.ok(b.html.includes(UNSUBSCRIBE) && b.text.includes(UNSUBSCRIBE))
   assert.ok(!('send' in b), 'created as a draft')
-  assert.equal(await e.KV.get(queueKey('2026-11-25')), null)
-  // queued again (a run that re-queued it): the state says sent, so nothing goes out
-  await queued(e.KV)
+  assert.equal(await e.KV.get('newsletter:sent:2026-11-25-rents'), 'sent')
+  // the queue's delete came too soon after its write (KV's limit) and is left for the next run, which finds it sent
+  e.KV.clock.t += 60 * 60_000
   const again = fakeResend()
-  assert.deepEqual(await sendNewsletter({ env: e, kv: e.KV, now, fetch: again.f }), { already: 'sent', slug: '2026-11-25-rents' })
+  assert.deepEqual(await sendNewsletter({ env: e, kv: e.KV, now: new Date('2026-11-25T15:07:00Z'), fetch: again.f }), { already: 'sent', slug: '2026-11-25-rents' })
   assert.equal(again.calls.length, 0)
+  assert.equal(await e.KV.get(queueKey('2026-11-25')), null)
 })
 
-test('sending: a run cut short after the send never sends again; yesterday’s queue still goes; failures stop after four tries', async () => {
+test('sending: a run cut short after the send never sends again; one try an hour; yesterday’s queue still goes; four tries at most', async () => {
   const now = new Date('2026-11-26T00:07:00Z')
   const e = env()
   await queued(e.KV, '2026-11-25')
-  // the last run created the draft and asked Resend to send it, then was cut short before writing that down
-  await e.KV.put('newsletter:state:2026-11-25-rents', JSON.stringify({ attempts: 1, id: 'b-1' }))
+  // an earlier run created the draft and asked Resend to send it, then was cut short before marking it sent
+  await e.KV.put('newsletter:draft:2026-11-25-rents', 'b-1')
+  await e.KV.put('newsletter:try:2026-11-25-rents:2026-11-25T23', '1')
+  e.KV.clock.t += 60 * 60_000
   const { f, calls } = fakeResend({ 'GET /broadcasts/b-1': [200, { id: 'b-1', status: 'queued' }] })
   const r = await sendNewsletter({ env: e, kv: e.KV, now, fetch: f })
   assert.equal(r.status, 'queued')
   assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), ['GET /broadcasts/b-1'])
+  // a failing send: one try an hour (a second run in the same hour does nothing), and none after the fourth
   const e2 = env()
   await queued(e2.KV, '2026-11-26')
   const bad = fakeResend({ 'POST /broadcasts': [422, { name: 'validation_error', message: 'The domain is not verified' }] })
-  for (let i = 0; i < 4; i++) await assert.rejects(sendNewsletter({ env: e2, kv: e2.KV, now, fetch: bad.f }), /create: Resend 422 validation_error/)
-  const gave = await sendNewsletter({ env: e2, kv: e2.KV, now, fetch: bad.f })
-  assert.equal(gave.gaveUp, '2026-11-26-rents')
+  const at = (h) => new Date(`2026-11-26T${String(h).padStart(2, '0')}:07:00Z`)
+  await assert.rejects(sendNewsletter({ env: e2, kv: e2.KV, now: at(13), fetch: bad.f }), /create: Resend 422 validation_error/)
+  assert.deepEqual(await sendNewsletter({ env: e2, kv: e2.KV, now: at(13), fetch: bad.f }), { skipped: 'tried this hour', slug: '2026-11-26-rents' })
+  for (const h of [14, 15, 16]) await assert.rejects(sendNewsletter({ env: e2, kv: e2.KV, now: at(h), fetch: bad.f }))
+  const gave = await sendNewsletter({ env: e2, kv: e2.KV, now: at(17), fetch: bad.f })
+  assert.deepEqual(gave, { gaveUp: '2026-11-26-rents', tries: 4 })
   assert.equal(bad.calls.length, 4)
 })
 

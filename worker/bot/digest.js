@@ -328,10 +328,11 @@ export async function publishDigest({ env, kv, api, day, draft, check, net, stor
 export async function finishPublish({ kv, api, day, pending }) {
   const s = await api.session()
   await api.call('POST', 'com.atproto.repo.putRecord', { body: { repo: s.did, collection: COLLECTION, rkey: pending.slug, record: pending.record } })
+  // the newsletter sends this record as it is (newsletter.js), once; queued before the day is marked done, so a run
+  // killed in between still emails it. A dry run's queue stays in its scratch layer.
+  if (!(await kv.get(queueKey(day)))) await kv.put(queueKey(day), JSON.stringify({ slug: pending.slug, url: pending.url, uri: `at://${s.did}/${COLLECTION}/${pending.slug}`, record: pending.record }), { expirationTtl: 2 * 86400 })
   await kv.put(`journal:done:${day}`, pending.slug, { expirationTtl: 3 * 86400 })
   if (!(await kv.get(`journal:announce:${day}`))) await kv.put(`journal:announce:${day}`, JSON.stringify(pending.announcement), { expirationTtl: 3 * 86400 })
-  // the newsletter sends this record as it is (newsletter.js), once; a dry run's queue stays in its scratch layer
-  if (!(await kv.get(queueKey(day)))) await kv.put(queueKey(day), JSON.stringify({ slug: pending.slug, url: pending.url, uri: `at://${s.did}/${COLLECTION}/${pending.slug}`, record: pending.record }), { expirationTtl: 2 * 86400 })
   await kv.delete(`journal:pending:${day}`).catch(() => {})
   return { slug: pending.slug, url: pending.url, published: pending.slug }
 }

@@ -9,7 +9,9 @@
 // - Addresses are private. They live in Resend, never in autonomist's repository or any public record, and never
 //   reach the model. A pending confirmation is kept in KV under a hash of its token, for two days.
 // - Abuse is bounded: a honeypot field, sign-ups per visitor per day (a salted hash of the network address), one
-//   confirmation per address per day, and confirmation emails per day for the whole site.
+//   confirmation per inbox per day ("+tags" and Gmail's dots don't make a new inbox), and confirmation emails per day
+//   for the whole site. Someone who rotates networks can still spend the site's daily cap; no one can send one inbox
+//   more than one confirmation a day.
 // - One broadcast per published digest. A draft is created and its id kept; its status is read before it's sent, so
 //   a run cut short never sends the digest twice (Resend's idempotency keys don't cover broadcasts).
 // - Unsubscribing is Resend's: every digest carries its unsubscribe link ({{{RESEND_UNSUBSCRIBE_URL}}}).
@@ -171,9 +173,39 @@ autonomist is a public-interest project of Jason Edelman: an AI that reads what 
   return { subject: "Confirm: autonomist's daily digest", html, text }
 }
 
-/** POST /api/newsletter/subscribe { email, website }: { status, body }. Says the same whether or not the address is known. */
-export async function subscribe({ env, body, visitor, fetch: f = fetch, now = Date.now() }) {
-  if (!newsletterReady(env)) return { status: 503, body: { error: "The digest by email isn't open yet." } }
+// Workers KV takes one write a second per key, and a second write throws. So nothing below writes a key twice in a
+// request or a run: counters are one key per event, counted by listing, and each step of a send has its own key.
+async function count(kv, prefix, max = 1000) {
+  let n = 0, cursor
+  do {
+    const page = await kv.list({ prefix, cursor })
+    n += page.keys.length
+    cursor = page.list_complete || n >= max ? undefined : page.cursor
+  } while (cursor)
+  return n
+}
+const nonce = () => crypto.randomUUID().slice(0, 8)
+
+/** The inbox an address reaches, so "name+1@" and "name+2@" (and Gmail's dotted spellings) count as one. */
+export function inboxOf(email) {
+  const [local, domain] = String(email).toLowerCase().split('@')
+  const l = local.replace(/\+.*$/, '')
+  return domain === 'gmail.com' || domain === 'googlemail.com' ? `${l.replace(/\./g, '')}@gmail.com` : `${l}@${domain}`
+}
+
+// keyed with IP_SALT, so no one reading KV can test a guessed address against it
+async function keyed(env, s) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.IP_SALT), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`newsletter:${s}`)))
+  return [...sig.slice(0, 16)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * POST /api/newsletter/subscribe { email, website }: { status, body }. The answer is the same whether or not the
+ * address was asked before (only a failed send says otherwise, so the person can try again).
+ */
+export async function subscribe({ env, body, visitor, fetch: f = fetch, now = Date.now(), sleep = (ms) => new Promise((ok) => setTimeout(ok, ms)) }) {
+  if (!newsletterReady(env) || !env.IP_SALT) return { status: 503, body: { error: "The digest by email isn't open yet." } }
   if (!body || typeof body !== 'object') return { status: 400, body: { error: 'Send your email address.' } }
   const sent = { status: 200, body: { ok: true, note: 'Check your email for a link to confirm. Nothing comes until you do.' } }
   if (body.website) return sent // the honeypot: people never fill it in
@@ -181,17 +213,17 @@ export async function subscribe({ env, body, visitor, fetch: f = fetch, now = Da
   if (!email) return { status: 400, body: { error: "That email address doesn't look right." } }
   const kv = env.KV
   const day = new Date(now).toISOString().slice(0, 10)
-  const mine = `nl:visitor:${day}:${visitor}`
-  const used = Number((await kv.get(mine)) || 0)
-  if (used >= setting(env.NEWSLETTER_PER_VISITOR_DAILY, 5, { min: 1 })) return { status: 429, body: { error: 'Too many sign-ups from here today. Try again tomorrow.' } }
-  await kv.put(mine, String(used + 1), { expirationTtl: 2 * 86400 })
-  // one confirmation per address a day: asking again sends nothing, and says the same
-  const asked = `nl:asked:${await sha256hex(email)}`
+  // the site's cap first, so its answer is the same for every address
+  const cap = setting(env.NEWSLETTER_CONFIRMS_DAILY, 100, { min: 1, max: 1000 })
+  if ((await count(kv, `nl:sent:${day}:`, cap)) >= cap) return { status: 429, body: { error: 'Sign-ups are paused for the rest of today (UTC). Try again tomorrow.' } }
+  const perVisitor = setting(env.NEWSLETTER_PER_VISITOR_DAILY, 5, { min: 1, max: 100 })
+  if ((await count(kv, `nl:visitor:${day}:${visitor}:`, perVisitor)) >= perVisitor) return { status: 429, body: { error: 'Too many sign-ups from here today. Try again tomorrow.' } }
+  await kv.put(`nl:visitor:${day}:${visitor}:${nonce()}`, '', { expirationTtl: 2 * 86400 })
+  // one confirmation per inbox a day, marked before sending: asking again (or in parallel) sends nothing, and says the same
+  const asked = `nl:asked:${await keyed(env, inboxOf(email))}`
   if (await kv.get(asked)) return sent
-  const allKey = `nl:confirms:${day}`
-  const all = Number((await kv.get(allKey)) || 0)
-  if (all >= setting(env.NEWSLETTER_CONFIRMS_DAILY, 100, { min: 1 })) return { status: 429, body: { error: 'Sign-ups are paused for the rest of today (UTC). Try again tomorrow.' } }
-  await kv.put(allKey, String(all + 1), { expirationTtl: 2 * 86400 })
+  await kv.put(asked, '1', { expirationTtl: 86400 })
+  await kv.put(`nl:sent:${day}:${nonce()}`, '', { expirationTtl: 2 * 86400 })
   const t = token()
   const hash = await sha256hex(t)
   await kv.put(`nl:pending:${hash}`, JSON.stringify({ email, at: new Date(now).toISOString() }), { expirationTtl: 2 * 86400 })
@@ -199,15 +231,25 @@ export async function subscribe({ env, body, visitor, fetch: f = fetch, now = Da
   const mail = confirmationEmail({ origin, link: `${origin}/newsletter/confirm/#t=${t}` })
   const r = await resend(env, 'POST', '/emails', { from: env.NEWSLETTER_FROM, to: [email], ...mail }, { fetch: f, idempotencyKey: `confirm/${hash.slice(0, 40)}` }).catch((e) => ({ ok: false, status: 0, data: { message: String(e?.message || e) } }))
   if (!r.ok) {
-    await kv.delete(`nl:pending:${hash}`).catch(() => {})
     console.log(JSON.stringify({ newsletter: 'confirmation', ok: false, status: r.status, error: r.data?.name || r.data?.message || null }))
+    // nothing was sent: forget the address and the mark, so the person can try again (after a second, KV's write limit)
+    await sleep(1100)
+    await kv.delete(`nl:pending:${hash}`).catch(() => {})
+    await kv.delete(asked).catch(() => {})
     return { status: 502, body: { error: "The confirmation email couldn't be sent. Try again later." } }
   }
-  await kv.put(asked, '1', { expirationTtl: 86400 })
   return sent
 }
 
-/** POST /api/newsletter/confirm { token }: adds the pending address to the segment, once. */
+// An address in a path as Resend's docs write it: "@" and "+" as they are, anything else encoded.
+const pathEmail = (email) => encodeURIComponent(email).replace(/%40/g, '@').replace(/%2B/gi, '+')
+const down = (r) => r.status === 0 || r.status === 429 || r.status >= 500
+
+/**
+ * POST /api/newsletter/confirm { token }: the pending address subscribed and in the segment, once. Resend's docs don't
+ * say what creating an existing contact returns, so after creating, it reads the contact as it is and fixes what's
+ * missing: subscribed again (it may have unsubscribed before), and in the segment.
+ */
 export async function confirm({ env, body, fetch: f = fetch }) {
   if (!newsletterReady(env)) return { status: 503, body: { error: "The digest by email isn't open yet." } }
   const t = String(body?.token || '')
@@ -217,19 +259,25 @@ export async function confirm({ env, body, fetch: f = fetch }) {
   const pending = await kv.get(key, 'json')
   if (!pending?.email) return { status: 400, body: { error: 'That link has expired or was already used. Sign up again on the newsletter page.' } }
   const seg = env.RESEND_SEGMENT_ID
-  const email = pending.email
-  let r = await resend(env, 'POST', '/contacts', { email, unsubscribed: false, segments: [{ id: seg }] }, { fetch: f })
-  // already a contact (signed up before, or unsubscribed and back): subscribed again, and in the segment
-  if (!r.ok && r.status !== 429 && r.status < 500) {
-    const path = `/contacts/${encodeURIComponent(email)}`
-    const p = await resend(env, 'PATCH', path, { unsubscribed: false }, { fetch: f })
-    if (p.ok) r = await resend(env, 'POST', `${path}/segments/${encodeURIComponent(seg)}`, undefined, { fetch: f })
-    // in the segment already counts as done
-    if (p.ok && !r.ok && r.status === 409) r = { ok: true }
-  }
-  if (!r.ok) {
-    console.log(JSON.stringify({ newsletter: 'confirm', ok: false, status: r.status, error: r.data?.name || r.data?.message || null }))
+  const failed = (step, r) => {
+    console.log(JSON.stringify({ newsletter: 'confirm', step, ok: false, status: r.status, error: r.data?.name || r.data?.message || null }))
     return { status: 502, body: { error: "That didn't go through. Try the link again in a little while." } }
+  }
+  const call = (method, path, b) => resend(env, method, path, b, { fetch: f }).catch((e) => ({ ok: false, status: 0, data: { message: String(e?.message || e) } }))
+  const created = await call('POST', '/contacts', { email: pending.email, unsubscribed: false, segments: [{ id: seg }] })
+  if (down(created)) return failed('create', created)
+  const c = await call('GET', `/contacts/${pathEmail(pending.email)}`)
+  if (!c.ok || !c.data?.id) return failed('read', c)
+  const id = encodeURIComponent(c.data.id)
+  if (c.data.unsubscribed !== false) {
+    const p = await call('PATCH', `/contacts/${id}`, { unsubscribed: false })
+    if (!p.ok) return failed('resubscribe', p)
+  }
+  const s = await call('GET', `/contacts/${id}/segments`)
+  if (!s.ok) return failed('segments', s)
+  if (!(s.data?.data || []).some((x) => x?.id === seg)) {
+    const a = await call('POST', `/contacts/${id}/segments/${encodeURIComponent(seg)}`)
+    if (!a.ok) return failed('segment', a)
   }
   await kv.delete(key)
   return { status: 200, body: { ok: true, note: "You're subscribed. The next digest comes by email." } }
@@ -243,7 +291,9 @@ export const queueKey = (day) => `newsletter:queue:${day}`
 
 /**
  * Sends the queued digest (today's or yesterday's) as a broadcast, once. Hourly; does nothing without a queue or
- * without the newsletter's config. A failure is retried at the next hour, up to four times.
+ * without the newsletter's config. One try an hour (which also keeps two overlapping runs from each sending), four in
+ * all. Each step has its own key, written once: a try (`newsletter:try:<slug>:<hour>`), the draft's id
+ * (`newsletter:draft:<slug>`), and the send (`newsletter:sent:<slug>`).
  */
 export async function sendNewsletter({ env, kv, now = new Date(), fetch: f = fetch }) {
   if (!newsletterReady(env)) return { skipped: 'not configured' }
@@ -251,55 +301,54 @@ export async function sendNewsletter({ env, kv, now = new Date(), fetch: f = fet
   for (const day of days) {
     const q = await kv.get(queueKey(day), 'json')
     if (!q?.record) continue
-    const stateKey = `newsletter:state:${q.slug}`
-    const state = (await kv.get(stateKey, 'json')) || { attempts: 0 }
-    if (state.sent) { await kv.delete(queueKey(day)); return { already: state.sent, slug: q.slug } }
-    if (state.attempts >= 4) return { gaveUp: q.slug, error: state.error }
-    state.attempts++
-    await kv.put(stateKey, JSON.stringify(state), { expirationTtl: 7 * 86400 })
-    try {
-      if (!state.id) {
-        const mail = digestEmail({ ...q.record, slug: q.slug }, { origin: originOf(env), uri: q.uri })
-        const r = await resend(env, 'POST', '/broadcasts', { segment_id: env.RESEND_SEGMENT_ID, from: env.NEWSLETTER_FROM, name: `Digest ${q.record.date}: ${mail.subject}`.slice(0, 200), ...mail }, { fetch: f })
-        if (!r.ok || !r.data?.id) throw fail('create', r)
-        state.id = r.data.id
-        await kv.put(stateKey, JSON.stringify(state), { expirationTtl: 7 * 86400 })
-      }
-      // a send that went through before a run was cut short leaves the broadcast queued or sent: never send it again
-      const g = await resend(env, 'GET', `/broadcasts/${encodeURIComponent(state.id)}`, undefined, { fetch: f })
-      if (!g.ok) throw fail('status', g)
-      if (g.data?.status && g.data.status !== 'draft') {
-        state.sent = g.data.status
-      } else {
-        const s = await resend(env, 'POST', `/broadcasts/${encodeURIComponent(state.id)}/send`, {}, { fetch: f })
-        if (!s.ok) throw fail('send', s)
-        state.sent = 'sent'
-      }
-      state.at = new Date().toISOString()
-      await kv.put(stateKey, JSON.stringify(state), { expirationTtl: 30 * 86400 })
-      await kv.delete(queueKey(day))
-      return { sent: state.id, slug: q.slug, status: state.sent }
-    } catch (e) {
-      state.error = String(e?.message || e).slice(0, 300)
-      await kv.put(stateKey, JSON.stringify(state), { expirationTtl: 7 * 86400 })
-      throw e
+    const slug = q.slug
+    const sentKey = `newsletter:sent:${slug}`, draftKey = `newsletter:draft:${slug}`, tries = `newsletter:try:${slug}:`
+    const already = await kv.get(sentKey)
+    if (already) { await kv.delete(queueKey(day)).catch(() => {}); return { already, slug } }
+    const thisHour = `${tries}${now.toISOString().slice(0, 13)}`
+    if (await kv.get(thisHour)) return { skipped: 'tried this hour', slug }
+    const tried = await count(kv, tries, 10)
+    if (tried >= 4) return { gaveUp: slug, tries: tried }
+    await kv.put(thisHour, '1', { expirationTtl: 7 * 86400 })
+    let id = await kv.get(draftKey)
+    if (!id) {
+      const mail = digestEmail({ ...q.record, slug }, { origin: originOf(env), uri: q.uri })
+      const r = await resend(env, 'POST', '/broadcasts', { segment_id: env.RESEND_SEGMENT_ID, from: env.NEWSLETTER_FROM, name: `Digest ${q.record.date}: ${mail.subject}`.slice(0, 200), ...mail }, { fetch: f })
+      if (!r.ok || !r.data?.id) throw fail('create', r)
+      id = r.data.id
+      await kv.put(draftKey, id, { expirationTtl: 7 * 86400 })
     }
+    // a send that went through before a run was cut short leaves the broadcast queued or sent: never send it again
+    const g = await resend(env, 'GET', `/broadcasts/${encodeURIComponent(id)}`, undefined, { fetch: f })
+    if (!g.ok) throw fail('status', g)
+    let status = g.data?.status
+    if (!status || status === 'draft') {
+      const s = await resend(env, 'POST', `/broadcasts/${encodeURIComponent(id)}/send`, {}, { fetch: f })
+      if (!s.ok) throw fail('send', s)
+      status = 'sent'
+    }
+    await kv.put(sentKey, status, { expirationTtl: 30 * 86400 })
+    // the queue may have been written moments ago in this same run (KV's one write a second): the sent mark already
+    // keeps the digest from going twice, so a failed delete is left to the next run
+    await kv.delete(queueKey(day)).catch(() => {})
+    return { sent: id, slug, status }
   }
   return { none: true }
 }
 
 /** A dry run's email, sent to the steward alone (the steward's page): a preview, never the list. */
-export async function previewToSteward({ env, email, to, id, fetch: f = fetch }) {
+export async function previewToSteward({ env, email, to, id, fetch: f = fetch, now = new Date() }) {
   if (!env.RESEND_API_KEY || !env.NEWSLETTER_FROM) return { status: 503, body: { error: 'Email is not configured (RESEND_API_KEY, NEWSLETTER_FROM).' } }
   if (!email?.html) return { status: 404, body: { error: 'That dry run has no email.' } }
   const page = `${originOf(env)}/newsletter/`
+  // the key spans a minute: a double click sends one, and pressing again later sends again
   const r = await resend(env, 'POST', '/emails', {
     from: env.NEWSLETTER_FROM,
     to: [to],
     subject: `[dry run] ${email.subject}`,
     html: email.html.replaceAll(UNSUBSCRIBE, page),
     text: email.text.replaceAll(UNSUBSCRIBE, page),
-  }, { fetch: f, idempotencyKey: `dry/${id}/${(await sha256hex(to)).slice(0, 16)}` })
+  }, { fetch: f, idempotencyKey: `dry/${id}/${(await sha256hex(to)).slice(0, 16)}/${now.toISOString().slice(0, 16)}` })
   if (!r.ok) return { status: 502, body: { error: `Resend said ${r.status}${r.data?.message ? `: ${String(r.data.message).slice(0, 200)}` : ''}` } }
   return { status: 200, body: { ok: true, note: `Sent to ${to}. Only you got it.` } }
 }

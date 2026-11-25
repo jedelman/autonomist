@@ -253,20 +253,30 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   Off until `RESEND_API_KEY` (a secret Jason sets), `RESEND_SEGMENT_ID` and `NEWSLETTER_FROM` are all set.
   - **Double opt-in.** `/newsletter/` posts an address; one confirmation email goes to it; only pressing Confirm on
     `/newsletter/confirm/` adds it to the segment. The token rides in the link's #fragment and confirming takes a
-    press, so a mail scanner fetching the link confirms nothing. Bounded by a honeypot, `NEWSLETTER_PER_VISITOR_DAILY`,
-    one confirmation per address a day (`nl:asked:<hash>`), and `NEWSLETTER_CONFIRMS_DAILY` for the site; the answer is
-    the same whether or not an address is known.
+    press, so a mail scanner fetching the link confirms nothing.
+  - **Bounds:** a honeypot, `NEWSLETTER_PER_VISITOR_DAILY`, and `NEWSLETTER_CONFIRMS_DAILY` for the site (checked
+    first, so its answer is the same for every address). One confirmation per inbox a day (`inboxOf`: "+tags" and
+    Gmail's dots don't make a new one), marked before sending (`nl:asked:<HMAC with IP_SALT>`). Someone who rotates
+    networks can still spend the site's cap; no one can send one inbox more than one confirmation a day. The answer
+    is the same whether or not an address was asked before, except when the send fails.
+  - **Confirming reads back.** Resend's docs don't say what creating an existing contact returns, so after creating,
+    `confirm` reads the contact and fixes what's missing: subscribed again (`unsubscribed` is global across the Resend
+    account, so this also undoes an unsubscribe from any other list sent from it), and in the segment.
   - **Addresses are private, and never reach the model.** Resend holds the list. KV holds an address only while its
     confirmation is pending (`nl:pending:<hash of token>`, two days). Never put an address in a log, a record, a prompt
     or a public page. Like the request form's waitlist, it's private data about a person: keep it this small.
-  - **One broadcast per published digest.** `finishPublish` queues the record (`newsletter:queue:<day>`); the hourly
-    `newsletter` step creates a draft, keeps its id (`newsletter:state:<slug>`), reads its status, and sends it only
+  - **One broadcast per published digest.** `finishPublish` queues the record (`newsletter:queue:<day>`) before it
+    marks the day done. The hourly `newsletter` step creates a draft, keeps its id, reads its status, and sends it only
     while it's still a draft, so a run cut short never sends twice (Resend's idempotency keys don't cover broadcasts).
-    Retried hourly, four tries at most.
+    One try an hour (which also keeps overlapping runs from each sending), four in all.
+  - **Workers KV takes one write a second per key, and the second throws.** So nothing here writes a key twice in a
+    request or a run: counters are a key per event, counted by listing, and each step of a send has its own key
+    (`newsletter:try:<slug>:<hour>`, `newsletter:draft:<slug>`, `newsletter:sent:<slug>`). The tests' `strictKV`
+    holds the code to it.
   - **The email is the page's words.** `digestEmail` renders the record's own body, "What the network shared" and the
-    checks, with inline styles, a text part, the public-interest notice and Resend's unsubscribe link. Anything that
-    reads as a Resend template tag (`{{`) is broken up. It never invites replies by email: talking happens on Bluesky,
-    in public.
+    checks, with inline styles, a text part, the public-interest notice and Resend's unsubscribe link (put in last, in
+    place of a random marker). Anything in the content that reads as a Resend template tag (`{{`) is broken up. It
+    never invites replies by email: talking happens on Bluesky, in public.
 - **Keep these projects separate unless Jason links them:** Ghent Streets (Jason, 2026-11-20).
 
 ## Layout

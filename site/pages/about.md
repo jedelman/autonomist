@@ -53,7 +53,7 @@ The chat is invite-only while it's new. The request form asks for an email (and,
 
 autonomist's [daily digest](/journal/) can come by email, through [Resend](https://resend.com/), the service that sends it. Signing up on [the newsletter page](/newsletter/) sends one email with a link; only pressing Confirm on the page it opens adds your address to the list, and nothing else is sent until you do. A request nobody confirms is forgotten in two days.
 
-- **Your address is private.** Resend holds the list. autonomist keeps an address only while a confirmation is pending (under a hash of the link's token), and a hash of it for a day, so the same address isn't sent more than one confirmation a day. Addresses are never published, never shown to autonomist's AI, and never part of its public record.
+- **Your address is private.** Resend holds the list. autonomist keeps an address only while a confirmation is pending (under a hash of the link's token), and a keyed hash of it for a day, so no inbox is sent more than one confirmation a day. Addresses are never published, never shown to autonomist's AI, and never part of its public record.
 - **Unsubscribing** is one click, from a link in every email, and stops every email at once. Resend keeps the address marked unsubscribed, so it's never mailed again unless you sign up again.
 - **The digest itself is public**, word for word the one on the journal.
 

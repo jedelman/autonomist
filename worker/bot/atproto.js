@@ -99,11 +99,14 @@ export function client(env, { pdsFetch, kv, fetch: f = fetch, now = () => Date.n
    * description }) attaches a link card instead, leaving the text's room for the words. `lang` tags the post with
    * the language it's written in (English unless given). Nothing is ever an @mention.
    */
-  async function post({ text, links = [], reply, card, lang }) {
+  async function post({ text, links = [], reply, card, quote, lang }) {
     if (!fits(text)) throw new Error('post too long')
     const s = await session()
     const facets = linkFacets(text, links)
-    const embed = card?.uri ? { $type: 'app.bsky.embed.external', external: { uri: card.uri, title: String(card.title || '').slice(0, 300), description: String(card.description || '').slice(0, 1000) } } : null
+    // a quote-post embeds another post by reference; otherwise a link card, if any
+    const embed = quote?.uri && quote?.cid
+      ? { $type: 'app.bsky.embed.record', record: { uri: quote.uri, cid: quote.cid } }
+      : card?.uri ? { $type: 'app.bsky.embed.external', external: { uri: card.uri, title: String(card.title || '').slice(0, 300), description: String(card.description || '').slice(0, 1000) } } : null
     const record = { $type: 'app.bsky.feed.post', text, createdAt: new Date(now()).toISOString(), langs: [cleanLang(lang)], ...(facets.length ? { facets } : {}), ...(reply ? { reply } : {}), ...(embed ? { embed } : {}) }
     return call('POST', 'com.atproto.repo.createRecord', { body: { repo: s.did, collection: 'app.bsky.feed.post', record } })
   }

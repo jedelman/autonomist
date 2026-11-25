@@ -64,7 +64,7 @@ if (cmd === 'request') {
     ...a.steps.map((s) => `- ${s.ok ? '' : '**failed** '}${s.name} (${Math.round(s.ms / 1000)}s): ${s.ok ? JSON.stringify(s.result) : s.error}`),
     '',
     '## Posts it would have made',
-    ...(a.posts.length ? a.posts.map((p) => `- ${p.text.replace(/\n+/g, ' / ')}${p.card ? ` [card: ${p.card.uri}]` : ''}`) : ['(none)']),
+    ...(a.posts.length ? a.posts.map((p) => `- ${p.text.replace(/\n+/g, ' / ')}${p.quote ? ` [quotes: ${p.quote.uri} (${p.quote.kind || ''})]` : p.card ? ` [card: ${p.card.uri}]` : ''}`) : ['(none)']),
     '',
     '## The email subscribers would have got',
     a.email ? `“${a.email.subject}”: email.html and email.txt` : '(none)',

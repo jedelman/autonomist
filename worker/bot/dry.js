@@ -78,7 +78,7 @@ export function dryApi(api, captured) {
       return fake(b.collection)
     },
     async post(p) {
-      captured.posts.push({ text: p.text, card: p.card || null, reply: p.reply || null, lang: p.lang || 'en' })
+      captured.posts.push({ text: p.text, card: p.card || null, quote: p.quote || null, reply: p.reply || null, lang: p.lang || 'en' })
       return fake('app.bsky.feed.post')
     },
   }

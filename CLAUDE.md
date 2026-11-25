@@ -143,8 +143,12 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   - **Questions on its own feed** (Jason: "Problem posing questions on it's own feed!"; `questions.js`): at each of
     `BOT_QUESTION_HOURS_UTC`, one post about one more story from the day's digest (never the same story twice a day;
     the lead story is left to the digest's own post when there are more than two): a sentence on what the articles
-    report, and an open question about the reader's own place, with the story's most-shared article as a link card.
-    `checkQuestion` holds it to the digest's standard against that story's articles and counts. No digest, no question.
+    report, and an open question about the reader's own place. It quote-posts when it can (Jason, 2026-11-25: "let's have
+    autonomist prefer quote-posts"; his pick: publishers' own posts and opted-in people's): a post of one of the
+    story's articles by its publisher (`isPublisher`: the handle is the link's site or one of its names) or by someone
+    who opted in and still does (`quotable`, rechecked at posting), kept by the sweep (`quote:<hash>`, three days); else
+    the most-shared article as a link card. `checkQuestion` holds it to the digest's standard against that story's
+    articles and counts. No digest, no question.
     The daily digest's post also leads with its question. Recent questions are kept (`questions:recent`) so openings
     don't repeat.
   - **Who it is, said once** (Jason, 2026-11-25, after the first days' writing spoke of "our co-ops" and "members";
@@ -248,9 +252,11 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     (`namesIn`), and a note that names anyone is written again. Never read: follows, lists,
     blocks. Unliking deletes the note at the next refresh, but only from a complete, fresh list of likes. Logs record
     that it happened (`acquainted`, `reacquainted`, `forgot`) and never who unliked. `BOT_ACQUAINT_PER_RUN` caps it.
-  - **Never:** follow anyone but the opted-in, like, repost, DM, @-mention (no mention facets), or reply unasked to
-    anyone who hasn't opted in. Replies link only to this site, Power Explained, or one source their own fact-check verified; a question post
-    carries only the article it's about, as a link card.
+  - **Never:** follow anyone but the opted-in, like, repost, DM, @-mention (no mention facets), reply unasked to
+    anyone who hasn't opted in, or quote anyone but a publisher's own post of its article or an opted-in person's post.
+    Replies link only to this site, Power Explained, or one source their own fact-check verified; a question post
+    carries only the article it's about, as a quoted post or a link card. Who shared what is never published, except
+    that a quote shows who posted the quoted post: a publisher, or someone who opted in.
   - **Once only:** every answer takes the shared claim `answered:<uri>` before the model is called; the journal marks
     the day done right after storing the entry, and posts it in a separate retryable step; question slots are
     claimed before posting. A failure after a post can never lead to a second one.

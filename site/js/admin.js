@@ -65,7 +65,7 @@
       const a = await api(`dry-run/${x.id}`).catch(() => null)
       if (!a) return null
       const pages = (a.pages || []).map((rkey) => el('li', {}, el('a', { href: `/api/admin/dry-run/${x.id}/page/${rkey}`, target: '_blank', rel: 'noopener' }, rkey)))
-      const posts = (a.posts || []).map((p) => el('li', {}, el('p', {}, p.text), p.card ? el('p', { class: 'muted' }, `card: ${p.card.uri}`) : ''))
+      const posts = (a.posts || []).map((p) => el('li', {}, el('p', {}, p.text), p.quote ? el('p', { class: 'muted' }, `quotes: ${p.quote.uri} (${p.quote.kind || ''})`) : p.card ? el('p', { class: 'muted' }, `card: ${p.card.uri}`) : ''))
       const steps = (a.steps || []).map((s) => el('li', {}, `${s.ok ? '' : 'FAILED '}${s.name}: ${s.ok ? JSON.stringify(s.result) : s.error} (${Math.round(s.ms / 1000)}s)`))
       // the email subscribers would have got: a download (it reads right opened from disk), or sent to the steward alone
       let email = ''

@@ -21,15 +21,16 @@ import { FRAMEWORK, frameworkSheet, markUsed } from './framework.js'
 import { graphemes } from './text.js'
 import { IDENTITY, VOICE } from './voice.js'
 import { REFLECTION_FIELDS, REFLECTION_RULES, writeLog, memoryNote } from './log.js'
-import { CHECKER_VERSION } from './factcheck.js'
+import { CHECKER_VERSION, siteOf } from './factcheck.js'
 
 const DAY = 86400_000
 const n = (x) => Number(x).toLocaleString('en-US')
 const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, '') } catch { return '' } }
 
 /** The day's links, one per link, most-shared first: { key, url, title, description, outlet, sharers, sids, at }. */
-export async function networkItems(kv, now = Date.now(), covered = new Set()) {
-  const all = await candidates(kv, covered, 5000)
+export async function networkItems(kv, now = Date.now()) {
+  // every link of the day counts, including ones an earlier digest read: the counts are the day's whole network
+  const all = await candidates(kv, new Set(), 5000)
   const items = all.filter((c) => now - Date.parse(c.at || 0) < DAY && c.title)
   const accounts = new Set(items.flatMap((c) => c.sids))
   items.sort((a, b) => b.sharers - a.sharers || String(b.at).localeCompare(String(a.at)))
@@ -54,13 +55,15 @@ export function rankStories(stories, items) {
     members.forEach((i) => used.add(i))
     const sids = new Set(members.flatMap((i) => items[i].sids))
     const relevance = Math.max(0, Math.min(3, Number(s.relevance) || 0))
-    out.push({ label: String(s.label).trim().slice(0, 80), relevance, sharers: sids.size, links: members.length, items: members.map((i) => items[i]).sort((a, b) => b.sharers - a.sharers), score: sids.size * (1 + relevance) })
+    const label = cleanLabel(s.label)
+    if (!label) continue
+    out.push({ label, relevance, sharers: sids.size, links: members.length, items: members.map((i) => items[i]).sort((a, b) => b.sharers - a.sharers), score: sids.size * (1 + relevance) })
   }
   return out.sort((a, b) => b.score - a.score || b.sharers - a.sharers)
 }
 
 /** Which articles to read: round-robin across the top stories, a different outlet each time, up to `max`. */
-export function chooseArticles(stories, { max = 40, perStory = 6 } = {}) {
+export function chooseArticles(stories, { max = 40, perStory = 6, covered = new Set() } = {}) {
   const picks = stories.map(() => [])
   const outlets = stories.map(() => new Set())
   let added = true, total = 0
@@ -68,7 +71,9 @@ export function chooseArticles(stories, { max = 40, perStory = 6 } = {}) {
     added = false
     for (let s = 0; s < stories.length && total < max; s++) {
       if (picks[s].length >= perStory) continue
-      const next = stories[s].items.find((it) => !picks[s].includes(it) && !outlets[s].has(it.outlet))
+      // an article an earlier digest read is read again only when the story has nothing new
+      const fresh = (it) => !picks[s].includes(it) && !outlets[s].has(it.outlet)
+      const next = stories[s].items.find((it) => fresh(it) && !covered.has(it.key)) || stories[s].items.find(fresh)
       if (!next) continue
       picks[s].push(next)
       outlets[s].add(next.outlet)
@@ -122,10 +127,22 @@ async function noteAll(model, articles, limit = 8) {
   return articles.filter((a) => a.gist)
 }
 
-/** The counts, written by code: the only place the digest's own figures may come from. */
-export function networkBlock({ links, accounts, read, closed, stories }) {
-  return `In the last day, ${n(accounts)} accounts that Jason Edelman follows shared ${n(links)} links. autonomist grouped them into stories and read ${n(read)} articles from the ${n(stories.length)} most-shared${closed ? ` (${n(closed)} more were closed to it or unreadable)` : ''}.
-${stories.map((s) => `- ${s.label}: shared by ${n(s.sharers)} people, ${n(s.articles.length)} article${s.articles.length === 1 ? '' : 's'} read`).join('\n')}`
+const people = (k) => `${n(k)} ${Number(k) === 1 ? 'person' : 'people'}`
+
+/**
+ * The counts, written by code: the only place the digest's own figures may come from. With `labels`, each story is
+ * named by the label the clustering call gave it (for the model to read); without, by number. Only the version
+ * without labels is a source checks verify against: a label is model-written, so a quotation or figure in it proves
+ * nothing.
+ */
+export function networkBlock({ links, accounts, read, closed, stories }, { labels = true } = {}) {
+  return `In the last day, ${n(accounts)} accounts that Jason Edelman follows shared ${n(links)} links. autonomist grouped them into stories and read ${n(read)} articles from the ${n(stories.length)} it ranked highest, by how many people shared each and how close each is to its subjects${closed ? ` (${n(closed)} more were closed to it or unreadable)` : ''}.
+${stories.map((s, i) => `- ${labels ? s.label : `Story ${i + 1}`}: shared by ${people(s.sharers)}, ${n(s.articles.length)} article${s.articles.length === 1 ? '' : 's'} read`).join('\n')}`
+}
+
+/** A story label fit to show: no quotation marks, links, handles or control characters; short. */
+export function cleanLabel(label) {
+  return String(label || '').replace(/[\u0000-\u001f\u007f"“”‘’«»„]/g, '').replace(/https?:\/\/\S+|@[a-z0-9.-]+/gi, '').replace(/\s+/g, ' ').trim().slice(0, 80)
 }
 
 export const DIGEST_SYSTEM = `${IDENTITY}
@@ -211,9 +228,13 @@ function digestMessage({ block, stories, articles, used }) {
  * Writes, checks and publishes the day's digest. Once a day: a lock, three attempts at most, and the day marked done
  * the moment the record is stored (announce then posts it, once).
  */
-export async function runDigest({ env, kv, api, model, day, fetch: f = fetch, now = Date.now() }) {
+export async function runDigest({ env, kv, api, model, day, fetch: f = fetch, now = Date.now(), deadline = Date.now() + 11 * 60_000 }) {
   const done = await kv.get(`journal:done:${day}`)
   if (done) return { ...(await announce({ kv, api, day })), published: done }
+  // a run killed between storing the record and marking the day done left its record here: store that same record
+  // (the same key, so nothing is doubled) and finish, rather than writing a second digest
+  const pending = await kv.get(`journal:pending:${day}`, 'json')
+  if (pending) return { ...(await finishPublish({ kv, api, day, pending })), ...(await announce({ kv, api, day })), resumed: true }
   if (await kv.get(`journal:lock:${day}`)) return { skipped: 'a run is in progress' }
   const attempts = Number((await kv.get(`journal:attempts:${day}`)) || 0)
   if (attempts >= 3) return { skipped: 'three attempts today' }
@@ -221,42 +242,47 @@ export async function runDigest({ env, kv, api, model, day, fetch: f = fetch, no
   await kv.put(`journal:lock:${day}`, '1', { expirationTtl: 1800 })
   const covered = new Set((await kv.get('journal:covered', 'json')) || [])
   try {
-    const net = await networkItems(kv, now, covered)
+    const net = await networkItems(kv, now)
     if (net.links < 5) return { skipped: 'too few links today' }
     const items = net.items.slice(0, 500).map((it) => ({ ...it, outlet: host(it.url) }))
     const list = items.map((it, i) => `${i}. ${String(it.title).slice(0, 160)} | ${it.outlet} | ${it.sharers}`).join('\n')
     const { data: grouped } = await model.structured({ system: CLUSTER_SYSTEM, user: list, schema: CLUSTER_SCHEMA, effort: 'low', maxTokens: 16000 })
     const ranked = rankStories(grouped.stories, items).slice(0, setting(env.BOT_DIGEST_STORIES, 8, { min: 2, max: 20 }))
     if (!ranked.length) return { skipped: 'no stories today' }
-    const picks = chooseArticles(ranked, { max: setting(env.BOT_DIGEST_ARTICLES, 40, { min: 3, max: 80 }), perStory: setting(env.BOT_DIGEST_PER_STORY, 6, { min: 1, max: 12 }) })
+    const picks = chooseArticles(ranked, { max: setting(env.BOT_DIGEST_ARTICLES, 40, { min: 3, max: 80 }), perStory: setting(env.BOT_DIGEST_PER_STORY, 6, { min: 1, max: 12 }), covered })
     const { articles: read, closed } = await readAll(picks, f)
     const articles = await noteAll(model, read)
     if (articles.length < 3) return { skipped: `only ${articles.length} articles could be read` }
     // stories with at least one article read, renumbered so the notes and the counts agree
     const stories = ranked.map((s, si) => ({ ...s, articles: articles.filter((a) => a.story === si) })).filter((s) => s.articles.length)
     for (const a of articles) a.story = stories.findIndex((s) => s.articles.includes(a))
-    const block = networkBlock({ links: net.links, accounts: net.accounts, read: articles.length, closed, stories })
+    const counts = { links: net.links, accounts: net.accounts, read: articles.length, closed, stories }
+    const block = networkBlock(counts)
+    // what checks verify against: the same counts with the stories numbered, not named
+    const verified = networkBlock(counts, { labels: false })
     const used = (await kv.get('framework:used', 'json')) || []
     const recentQuestions = (await kv.get('questions:recent', 'json')) || []
     const mem = await memoryNote(kv)
     const base = `${digestMessage({ block, stories, articles, used })}${mem}${recentQuestions.length ? `\n\nYOUR RECENT QUESTIONS (don't reuse their openings)\n${recentQuestions.map((q) => `- ${q}`).join('\n')}` : ''}`
     let user = base, draft = null, check = null
     for (let attempt = 0; attempt < 2; attempt++) {
+      // a second attempt only with time to spare: the run has fifteen minutes in all, and later steps need some
+      if (attempt && Date.now() > deadline - 5 * 60_000) break
       ;({ data: draft } = await model.structured({ system: DIGEST_SYSTEM, user, schema: DIGEST_SCHEMA, effort: 'high', maxTokens: 20000 }))
-      check = checkDigest(draft, { articles, block, recentQuestions })
+      check = checkDigest(draft, { articles, block: verified, recentQuestions })
       if (!check.problems.length) break
       user = `${base}\n\nYOUR PREVIOUS DRAFT\n${JSON.stringify(draft)}\n\nA program rejected it for these reasons:\n${check.problems.map((p) => `- ${p}`).join('\n')}\n\nWrite it again and fix every one. Copy quotations exactly, or don't quote.`
     }
-    for (const a of articles) covered.add(a.key)
     if (check.problems.length) return { skipped: 'the digest failed its checks', problems: check.problems.slice(0, 5) }
+    for (const a of articles) covered.add(a.key)
     // fact-checks against sources outside what was read: a page repeating any article word for word doesn't count
     const all = { title: '', url: '', text: articles.map((a) => `${a.title}\n${a.text}`).join('\n\n') }
-    const claims = await checkClaims({ env, kv, model, day, draft, article: all, fetch: f })
+    const outlets = [...new Set(articles.map((a) => siteOf(a.url)).filter(Boolean))]
+    const claims = Date.now() < deadline - 4 * 60_000 ? await checkClaims({ env, kv, model, day, draft, article: all, exclude: outlets, fetch: f }) : []
+    await kv.put(`digest:day:${day}`, JSON.stringify({ block, stories: stories.map((s) => ({ label: s.label, sharers: s.sharers, articles: s.articles.map((a) => ({ url: a.url, title: a.title, outlet: a.outlet, gist: a.gist, quotes: a.quotes, text: a.text })) })) }), { expirationTtl: 2 * 86400 })
     const published = await publishDigest({ env, kv, api, day, draft, check: { ...check, claims }, net, stories, articles, closed })
     await markUsed(kv, check.usedPassages)
     await kv.put('questions:recent', JSON.stringify([draft.question, ...recentQuestions].slice(0, 12)))
-    // what the feed questions draw on later today: the stories, with the notes and texts read
-    await kv.put(`digest:day:${day}`, JSON.stringify({ block, lead: published.slug, stories: stories.map((s) => ({ label: s.label, sharers: s.sharers, articles: s.articles.map((a) => ({ url: a.url, title: a.title, outlet: a.outlet, gist: a.gist, quotes: a.quotes, text: a.text.slice(0, 6000) })) })) }), { expirationTtl: 2 * 86400 })
     await writeLog(api, { kind: 'journaled', context: 'digest', result: published.url, reflection: draft.reflection, themes: draft.themes, checks: claims })
     return { published: published.slug, url: published.url, read: articles.length, stories: stories.length, ...(await announce({ kv, api, day })) }
   } finally {
@@ -267,7 +293,6 @@ export async function runDigest({ env, kv, api, model, day, fetch: f = fetch, no
 
 /** Stores the digest in autonomist's repository and marks the day done at once; announce posts it, once. */
 export async function publishDigest({ env, kv, api, day, draft, check, net, stories, articles, closed }) {
-  const s = await api.session()
   const slug = `${day}-${slugify(draft.title) || 'digest'}`
   const record = {
     $type: COLLECTION,
@@ -289,11 +314,23 @@ export async function publishDigest({ env, kv, api, day, draft, check, net, stor
     model: env.MODEL || 'claude-haiku-5-5',
     createdAt: new Date().toISOString(),
   }
-  await api.call('POST', 'com.atproto.repo.putRecord', { body: { repo: s.did, collection: COLLECTION, rkey: slug, record: JSON.parse(JSON.stringify(record)) } })
   const url = `${(env.PUBLIC_ORIGIN || 'https://autonomist.jason-edelman.org').replace(/\/$/, '')}/journal/${slug}/`
-  await kv.put(`journal:done:${day}`, slug, { expirationTtl: 3 * 86400 })
-  await kv.put(`journal:announce:${day}`, JSON.stringify({ slug, url, title: draft.title, summary: draft.summary, question: draft.question, kind: 'digest' }), { expirationTtl: 3 * 86400 })
-  return { slug, url }
+  // the articles read go with the announcement, so a fact-check in a reply under the digest's post never counts them
+  const announcement = { slug, url, title: draft.title, summary: draft.summary, question: draft.question, kind: 'digest', sources: articles.map((a) => a.url).slice(0, 60) }
+  const pending = { slug, url, record: JSON.parse(JSON.stringify(record)), announcement }
+  // written down before the record is stored, so a run cut short here finishes this digest instead of writing another
+  await kv.put(`journal:pending:${day}`, JSON.stringify(pending), { expirationTtl: 3 * 86400 })
+  return finishPublish({ kv, api, day, pending })
+}
+
+/** Stores a pending digest's record (idempotent: the same key), marks the day done, and queues its announcement. */
+export async function finishPublish({ kv, api, day, pending }) {
+  const s = await api.session()
+  await api.call('POST', 'com.atproto.repo.putRecord', { body: { repo: s.did, collection: COLLECTION, rkey: pending.slug, record: pending.record } })
+  await kv.put(`journal:done:${day}`, pending.slug, { expirationTtl: 3 * 86400 })
+  if (!(await kv.get(`journal:announce:${day}`))) await kv.put(`journal:announce:${day}`, JSON.stringify(pending.announcement), { expirationTtl: 3 * 86400 })
+  await kv.delete(`journal:pending:${day}`).catch(() => {})
+  return { slug: pending.slug, url: pending.url, published: pending.slug }
 }
 
 export { claimsToCheck }

@@ -109,7 +109,25 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     the network shared" written by code (`journal-pages.js`). Who shared what is never published. This is the one place
     model-written prose goes on a public page. The day's stories, notes and texts are kept a day for the feed questions
     (`digest:day:<day>`). `node scripts/journal-check.mjs --framework` checks the passages against the live site;
-    recently quoted passages go last in the sheet (`framework:used`).
+    recently quoted passages go last in the sheet (`framework:used`). Story labels are the clustering call's: cleaned,
+    shown to the model and on the page, and never a source checks verify against (`networkBlock(..., { labels: false })`
+    is). Every link of the day counts, including ones an earlier digest read (`journal:covered`), which are read again
+    only when a story has nothing new, and marked only once a digest is published. A digest is published exactly once:
+    its record is written down (`journal:pending:<day>`) before it's stored, and a run cut short finishes that record
+    rather than writing another. It works to a deadline inside the cron's fifteen minutes (no second synthesis or
+    fact-checks when time is short), and the hourly steps after it don't start late. Fact-checks never count the
+    outlets it read, nor do fact-checks in replies under its post (`journal:root` carries `sources`).
+  - **Dry runs** (Jason, 2026-11-25: "Let's set up a dry run mode so we can produce the artifacts a real run would
+    produce but as test artifacts, never posted"; `dry.js`). A real run with nothing let out: real network, real reading
+    under robots.txt, real priced model calls, but every post and record write is captured (`dryApi`) and the pipelines'
+    own state goes to a scratch layer (`dryKV`: finished-today keys hidden, writes kept; only the daily search count
+    passes through). The artifact (`dryrun:result:<id>`, two weeks; `dryrun:index`) holds the steps and timings, every
+    post and record it would have made, the pages as published, the notes behind a digest, and the spend. Requested from
+    the steward's page or `node scripts/dry-run.mjs request [digest,questions|dream|notes|all]` (`dryrun:request`, taken
+    by the next five-minute run, one at a time); fetched with `node scripts/dry-run.mjs fetch latest --wait` into
+    `dry-runs/<id>/` (git-ignored). `BOT_DRY` names scheduled pipelines that run dry daily until taken out: `digest`
+    makes the 13:07 digest and its feed questions an artifact instead of a publication. A dry run never replaces a
+    pipeline that isn't listed, and the real five-minute work always runs first.
   - **Questions on its own feed** (Jason: "Problem posing questions on it's own feed!"; `questions.js`): at each of
     `BOT_QUESTION_HOURS_UTC`, one post about one more story from the day's digest (never the same story twice a day;
     the lead story is left to the digest's own post when there are more than two): a sentence on what the articles

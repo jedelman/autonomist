@@ -144,7 +144,7 @@ test('feed questions: one story at a time from the day\'s digest, checked agains
   const now = new Date('2026-11-25T16:07:00Z')
   const r = await runQuestion({ env: {}, kv, api, model, day: '2026-11-25', now })
   assert.equal(r.story, 'Farmland sales') // the digest's own post already covered the lead story
-  assert.ok(prompts[0].includes('Farmland sales: shared by 3 people today'))
+  assert.ok(prompts[0].includes('STORY: Farmland sales') && prompts[0].includes('Shared by 3 people today'))
   assert.equal(posts[0].card.uri, 'https://c.example/land')
   assert.deepEqual(await runQuestion({ env: {}, kv, api, model, day: '2026-11-25', now }), { skipped: 'already asked this slot' })
   assert.deepEqual(await runQuestion({ env: {}, kv: memoryKV(), api, model, day: '2026-11-25', now }), { skipped: 'no digest today yet' })
@@ -192,4 +192,83 @@ test('notes: a note that names a thinker is written again with the theme instead
   await runAcquaint({ env: {}, kv, api, model, fetch: async () => new Response('', { status: 404 }) })
   assert.equal(puts[0].note, 'You post about commons governance theory and shared land.')
   assert.ok(prompts[1].includes('it names people (Federici)'))
+})
+
+// Regression tests for the review of 51960d3 (2026-11-25).
+test('review: a failed digest marks nothing covered, and links an earlier digest read still count', async () => {
+  const kv = memoryKV()
+  const now = Date.parse('2026-11-25T13:07:00Z')
+  await seed(kv, now)
+  await kv.put('journal:covered', JSON.stringify(['1'])) // yesterday's digest read the most-shared link
+  const api = { session: async () => ({ did: 'did:plc:me' }), call: async () => ({ uri: 'at://x' }), post: async () => ({ uri: 'at://p', cid: 'c' }) }
+  let listed = ''
+  const model = { structured: async ({ schema, user }) => {
+    if (schema === CLUSTER_SCHEMA) { listed = user; return { data: { stories: [{ label: 'Rent freezes', items: [0, 1, 2], relevance: 3 }, { label: 'Farm', items: [4], relevance: 1 }, { label: 'Coop', items: [3], relevance: 1 }] } } }
+    if (schema === NOTE_SCHEMA) return { data: { gist: 'g', quotes: [], themes: [] } }
+    return { data: draft({ title: 'x', body: 'too short' }) }
+  } }
+  const r = await runDigest({ env: {}, kv, api, model, day: '2026-11-25', fetch: fetchFake(), now })
+  assert.equal(r.skipped, 'the digest failed its checks')
+  assert.ok(listed.includes(ARTICLES['https://a.example/rent'].title)) // the covered link is still counted
+  assert.deepEqual(await kv.get('journal:covered', 'json'), ['1'])
+})
+
+test('review: story labels are never a verified source; a later bare-link share keeps the title', async () => {
+  const counts = { links: 5, accounts: 10, read: 4, closed: 0, stories: [{ label: 'Housing is a human right, says $40 billion plan', sharers: 4, articles: [1, 2] }] }
+  const verified = networkBlock(counts, { labels: false })
+  assert.ok(!verified.includes('human right') && verified.includes('Story 1: shared by 4 people'))
+  const p = checkDigest(draft({ sections: { 'For people organizing': `As the label had it, “Housing is a human right,” with $40 billion.${filler(10)}` } }), { articles, block: verified }).problems
+  assert.ok(p.some((x) => x.startsWith('quote not found')) && p.includes('figure not found in any source: 40'))
+  assert.ok(networkBlock({ ...counts, stories: [{ label: 'L', sharers: 1, articles: [1] }] }).includes('shared by 1 person,'))
+  // the sweep: B pastes the bare link after A shared it with a card
+  const kv = memoryKV()
+  const now = Date.now()
+  await kv.put('bot:follows', JSON.stringify({ at: now, follows: [{ did: 'did:plc:a' }, { did: 'did:plc:b' }] }))
+  const item = (did, card, min) => ({ post: { uri: `at://${did}/p/1`, author: { did, handle: 'x.example' }, indexedAt: new Date(now - min * 60e3).toISOString(), ...(card ? { embed: { external: { uri: 'https://news.example/s', title: 'The real title' } } } : {}), record: card ? {} : { text: 'https://news.example/s', facets: [{ features: [{ $type: 'app.bsky.richtext.facet#link', uri: 'https://news.example/s' }] }] } } })
+  const api = { pub: async (n, q) => ({ feed: [item(q.actor, q.actor === 'did:plc:a', q.actor === 'did:plc:a' ? 120 : 10)] }) }
+  await sweep(api, kv, 2, now)
+  const [c] = await candidates(kv)
+  assert.equal(c.title, 'The real title')
+  assert.equal(c.sharers, 2)
+  assert.equal(c.at, new Date(now - 10 * 60e3).toISOString()) // the latest share time
+})
+
+test('review: a digest cut short after writing its record is finished, never written twice', async () => {
+  const kv = memoryKV()
+  const pending = { slug: '2026-11-25-the-day', url: 'https://autonomist.jason-edelman.org/journal/2026-11-25-the-day/', record: { $type: 'org.jason-edelman.autonomist.journal', kind: 'digest', title: 'The day' }, announcement: { slug: '2026-11-25-the-day', url: 'u', title: 'The day', summary: 's', question: 'Q?', kind: 'digest' } }
+  await kv.put('journal:pending:2026-11-25', JSON.stringify(pending))
+  const puts = [], posts = []
+  const api = { session: async () => ({ did: 'did:plc:me' }), call: async (m, nsid, o) => { puts.push(o.body.rkey); return {} }, post: async (p) => { posts.push(p); return { uri: 'at://p', cid: 'c' } } }
+  const r = await runDigest({ env: {}, kv, api, model: { structured: async () => assert.fail('no new digest') }, day: '2026-11-25', fetch: fetchFake() })
+  assert.equal(r.resumed, true)
+  assert.deepEqual(puts, ['2026-11-25-the-day'])
+  assert.equal(await kv.get('journal:done:2026-11-25'), '2026-11-25-the-day')
+  assert.equal(await kv.get('journal:pending:2026-11-25'), null)
+  assert.equal(posts.length, 1)
+})
+
+test('review: the members backstop catches more, and leaves other people\'s members alone; metadata always fits', async () => {
+  for (const bad of ['I wonder about our member co-ops.', 'Our housing co-ops would differ.', 'Members are worried about repairs.', 'members were asking about exits']) assert.equal(cleanReflection(bad).withheld, true, bad)
+  for (const ok of ['Union members have voted to strike, the article says.', 'Council members raised the budget.']) assert.equal(cleanReflection(ok).withheld, false, ok)
+  const { candidateMetadata } = await import('../worker/bot/sources.js')
+  const long = '"\\\u0001'.repeat(400)
+  const m = candidateMetadata({ url: `https://x.example/${'a'.repeat(280)}`, title: long, description: long, handle: 'h'.repeat(60), post: 'at://x/'.padEnd(120, 'y'), at: new Date().toISOString() }, Array.from({ length: 20 }, (_, i) => `id${i}aaaaa`))
+  assert.ok(new TextEncoder().encode(JSON.stringify(m)).length <= 1000)
+})
+
+test('review: a withheld note keeps only topics that name no one', async () => {
+  const ME = 'did:plc:aaaaaaaaaaaaaaaaaaaaaaaa', ANA = 'did:plc:bbbbbbbbbbbbbbbbbbbbbbbb'
+  const kv = memoryKV()
+  await kv.put('bot:optin', JSON.stringify({ at: Date.now(), complete: true, people: [{ did: ANA, handle: 'ana.example', read: true }] }))
+  const puts = []
+  const api = {
+    session: async () => ({ did: ME }),
+    pub: async (nsid) => (nsid === 'app.bsky.actor.getProfile' ? { handle: 'ana.example', displayName: 'Ana' } : { feed: [] }),
+    call: async (m, nsid, o) => { if (nsid === 'com.atproto.repo.putRecord') puts.push(o.body.record); return nsid === 'com.atproto.repo.listRecords' ? { records: [] } : { uri: 'at://x' } },
+  }
+  // both attempts fail on a figure, so the note is withheld; its topics still go through the names check
+  const model = { structured: async ({ user, schema }) => schema.properties.names ? { data: { names: user.includes('deleuze') ? ['Deleuze'] : [] } } : { data: { note: 'You post 40 times a day.', topics: ['deleuze', 'the commons'] } } }
+  await runAcquaint({ env: {}, kv, api, model, fetch: async () => new Response('', { status: 404 }) })
+  assert.equal(puts[0].note, '')
+  assert.deepEqual(puts[0].topics, ['the commons'])
 })

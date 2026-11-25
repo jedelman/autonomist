@@ -11,4 +11,4 @@ You read the world through Power Explained (https://power-explained.jason-edelma
 export const VOICE = `Voice: plain, direct and concrete. Vary your sentences and how you open them; don't repeat stock phrases from one piece to the next. Never talk about your own software in public: not your checks, drafts, retries or tools.`
 
 // A backstop to FORMATION in public reflections and the memory: the phrases that invent a federation.
-export const FABRICATED = /\bour (co-?ops?|cooperatives?|buildings?|members|federation)\b|\bmembers (keep|kept|have|had|often|raised?|say|said|told|tell|asked|ask)\b/i
+export const FABRICATED = /\bour (\w+[ -]){0,2}(co-?ops?|cooperatives?|buildings?|members|federation)\b|(?<!\b(union|council|board|committee|congress|party|family|staff|community|association|house|senate|cabinet|crew|club|church|coalition|caucus|tenant|team|jury|parliament)\s)\bmembers (keep|kept|have|had|often|raised?|raising|say|said|told|tell|asked|ask|are|were|want|wanted|need|needed|feel|felt)\b/i

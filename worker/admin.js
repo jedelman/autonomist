@@ -61,7 +61,26 @@ export async function adminApi(req, env, path, json, fetchImpl = fetch) {
     const proposals = (await Promise.all(proposalKeys.map((k) => getJson(kv, k.name)))).filter(Boolean)
     return json({ steward: who, invites: invites.sort((a, b) => String(b.created).localeCompare(String(a.created))), requests, proposals })
   }
+  // dry runs (worker/bot/dry.js): the recent ones, one in full, and a page one would have published
+  if (path === '/api/admin/dry-runs' && req.method === 'GET') {
+    return json({ index: (await getJson(kv, 'dryrun:index')) || [], requested: await getJson(kv, 'dryrun:request'), running: Boolean(await kv.get('dryrun:running')) })
+  }
+  const dry = path.match(/^\/api\/admin\/dry-run\/([0-9A-Za-z-]{10,40})(?:\/page\/([0-9a-z-]{1,100}))?$/)
+  if (dry && req.method === 'GET') {
+    const a = await getJson(kv, `dryrun:result:${dry[1]}`)
+    if (!a) return json({ error: 'No such dry run (they keep two weeks).' }, 404)
+    if (!dry[2]) return json({ ...a, pages: Object.keys(a.pages || {}) })
+    const page = a.pages?.[dry[2]]
+    if (!page) return json({ error: 'No such page in that dry run.' }, 404)
+    return new Response(page, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } })
+  }
   if (req.method !== 'POST') return json({ error: 'Not found.' }, 404)
+  if (path === '/api/admin/dry-run') {
+    const what = String(body.what || 'digest,questions').split(',').map((x) => x.trim()).filter((x) => ['digest', 'questions', 'dream', 'notes', 'all'].includes(x))
+    if (!what.length) return json({ error: 'Say what to dry-run: digest, questions, dream, notes or all.' }, 400)
+    await kv.put('dryrun:request', JSON.stringify({ what: what.includes('all') ? 'all' : what.join(','), at: new Date().toISOString(), by: who }), { expirationTtl: 86400 })
+    return json({ ok: true, note: 'Requested. The next five-minute run picks it up; a digest takes a few minutes more.' })
+  }
   if (path === '/api/admin/invite') {
     const uses = Math.min(50, Math.max(1, Math.round(Number(body.uses) || 3)))
     return json({ code: await mint(kv, body.label, uses), uses })

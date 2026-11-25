@@ -68,6 +68,10 @@ BOT_JOURNAL_HOUR_UTC = "13"
 BOT_DIGEST_STORIES = "8"
 BOT_DIGEST_ARTICLES = "40"
 BOT_DIGEST_PER_STORY = "6"
+# Scheduled pipelines that run dry until taken out of this list (dry.js; Jason, 2026-11-25: "produce the artifacts a
+# real run would produce but as test artifacts, never posted"). "digest": the day's digest and its two feed questions
+# become a dry-run artifact on the steward's page instead of being published. Remove it to go live.
+BOT_DRY = "digest"
 # Its daily dream, from this UTC hour on (7 = 2 AM New York in winter; dream.js).
 BOT_DREAM_HOUR_UTC = "7"
 # Problem-posing questions on its own feed, one at each of these UTC hours (16, 20 = 11 AM, 3 PM New York in winter).

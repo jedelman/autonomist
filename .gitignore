@@ -4,3 +4,4 @@ public/
 .dev.vars
 *.csv
 .wrangler-test.toml
+dry-runs/

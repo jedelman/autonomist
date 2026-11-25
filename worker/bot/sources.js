@@ -79,8 +79,14 @@ export function clipBytes(s, max) {
 export function candidateMetadata(l, sids = []) {
   // s: short ids (hashes) of the accounts that shared it, so the digest can count different people without keeping
   // who they are; up to twenty
-  const m = { u: clipBytes(l.url, 300), t: clipBytes(l.title, 200), d: clipBytes(l.description, 200), h: clipBytes(l.handle, 60), p: clipBytes(l.post, 120), at: String(l.at || '').slice(0, 30), s: sids.slice(0, 20) }
-  return enc.encode(JSON.stringify(m)).length <= 1000 ? m : { ...m, d: '' }
+  let m = { u: clipBytes(l.url, 300), t: clipBytes(l.title, 200), d: clipBytes(l.description, 200), h: clipBytes(l.handle, 60), p: clipBytes(l.post, 120), at: String(l.at || '').slice(0, 30), s: sids.slice(0, 20) }
+  // KV metadata is capped at 1,024 bytes: shed the description, then shorten the title and the sharer list, measuring
+  // each time (JSON escaping can grow a string)
+  const size = () => enc.encode(JSON.stringify(m)).length
+  if (size() > 1000) m = { ...m, d: '' }
+  if (size() > 1000) m = { ...m, t: clipBytes(m.t, 100), s: m.s.slice(0, 10) }
+  if (size() > 1000) m = { ...m, t: clipBytes(m.t, 40), p: '', s: m.s.slice(0, 5) }
+  return m
 }
 
 /** A short, one-way id for an account: enough to count different sharers, not to say who they are. */
@@ -109,7 +115,10 @@ export async function sweep(api, kv, n, now = Date.now()) {
             // the same link from someone else adds them to its sharers
             const prev = kv.getWithMetadata ? (await kv.getWithMetadata(key))?.metadata : null
             const sids = [...new Set([...(prev?.s || []), sid])]
-            await kv.put(key, '', { metadata: candidateMetadata(prev?.at && prev.at < l.at ? { ...l, at: prev.at } : l, sids), expirationTtl: 2 * 86400 })
+            // a later share that only pastes the bare link has no title: keep the card's title and description; and the
+            // latest share time, so a link still being shared today counts today
+            const merged = { ...l, title: l.title || prev?.t || '', description: l.description || prev?.d || '', at: prev?.at && prev.at > l.at ? prev.at : l.at }
+            await kv.put(key, '', { metadata: candidateMetadata(merged, sids), expirationTtl: 2 * 86400 })
             found++
           } catch { failed++ }
         }

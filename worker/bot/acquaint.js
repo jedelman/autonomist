@@ -296,6 +296,11 @@ export async function runAcquaint({ env, kv, api, model, fetch: f = fetch, now =
         if (!clean.withheld) break
         user = `${formatAccount(acc)}\n\nYour last note was refused: ${named.length ? `it names people (${named.slice(0, 5).join(', ')}); say what their ideas are about instead` : 'it had a name or handle, a quotation mark, a figure, a link, or a word about who they are rather than what they post about'}. Write it again within the rules.`
       }
+      // the topics that are kept, however the note ended, never name anyone
+      if (clean.topics.length) {
+        const inTopics = await namesIn(model, clean.topics.join('\n'))
+        if (inTopics.length) clean = { ...clean, topics: clean.topics.filter((t) => !inTopics.some((nm) => t.toLowerCase().includes(String(nm).toLowerCase().split(' ').pop()))) }
+      }
       const prev = have.get(p.did)
       const record = {
         $type: ACQUAINTANCE,

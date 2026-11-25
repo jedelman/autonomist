@@ -57,7 +57,32 @@
     }) : [el('p', { class: 'muted' }, 'None.')]))
   }
 
-  function showPanel() { $('panel').hidden = false }
+  // dry runs: the recent ones, each with its pages, its posts and its steps
+  async function loadDry() {
+    const d = await api('dry-runs')
+    const head = d.running ? 'A dry run is running now.' : d.requested ? `A dry run of ${d.requested.what} is waiting for the next five-minute run.` : ''
+    const items = await Promise.all(d.index.slice(0, 8).map(async (x) => {
+      const a = await api(`dry-run/${x.id}`).catch(() => null)
+      if (!a) return null
+      const pages = (a.pages || []).map((rkey) => el('li', {}, el('a', { href: `/api/admin/dry-run/${x.id}/page/${rkey}`, target: '_blank', rel: 'noopener' }, rkey)))
+      const posts = (a.posts || []).map((p) => el('li', {}, el('p', {}, p.text), p.card ? el('p', { class: 'muted' }, `card: ${p.card.uri}`) : ''))
+      const steps = (a.steps || []).map((s) => el('li', {}, `${s.ok ? '' : 'FAILED '}${s.name}: ${s.ok ? JSON.stringify(s.result) : s.error} (${Math.round(s.ms / 1000)}s)`))
+      return el('div', { class: 'note' },
+        el('h3', {}, `${String(a.at).replace('T', ' ').slice(0, 16)} UTC · ${a.what.join(', ')}`),
+        el('p', { class: 'muted' }, `${Math.round(a.ms / 1000)}s · $${a.spend} · ${a.posts.length} posts and ${a.writes.length} records captured, none sent`),
+        pages.length ? el('p', {}, 'Pages it would have published:') : '', pages.length ? el('ul', {}, pages) : '',
+        posts.length ? el('p', {}, 'Posts it would have made:') : '', posts.length ? el('ul', {}, posts) : '',
+        el('details', {}, el('summary', {}, 'Steps'), el('ul', {}, steps)),
+        el('p', {}, el('a', { href: `/api/admin/dry-run/${x.id}`, target: '_blank', rel: 'noopener' }, 'Everything, as JSON')))
+    }))
+    const shown = items.filter(Boolean)
+    $('dryruns').replaceChildren(...[head ? el('p', {}, head) : '', ...(shown.length ? shown : [el('p', { class: 'muted' }, 'No dry runs yet.')])])
+  }
+  for (const [id, what] of [['dry-digest', 'digest,questions'], ['dry-all', 'all']]) {
+    $(id).addEventListener('click', async () => { try { const out = await api('dry-run', { what }); say(out.note); loadDry() } catch (e) { say(e.message, true) } })
+  }
+
+  function showPanel() { $('panel').hidden = false; loadDry().catch((e) => say(e.message, true)) }
   $('mint').addEventListener('submit', async (e) => {
     e.preventDefault()
     try { const out = await api('invite', { label: e.target.label.value, uses: e.target.uses.value }); showCode(out.code, out.uses); e.target.reset(); load() } catch (err) { say(err.message, true) }

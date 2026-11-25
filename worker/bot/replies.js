@@ -154,7 +154,7 @@ export async function runReplies({ env, kv, api, model, day, now = new Date() })
           const note = journal ? `\n\nThe thread starts from your journal entry "${journal.title}" (${journal.url}). Its summary: ${journal.summary} Its question: ${journal.question}` : ''
           const tags = (n.record?.langs || []).filter((x) => typeof x === 'string').slice(0, 3).join(', ')
           const situation = (tags ? `(The last post's language tags: ${tags}.) ` : '') + (n.reason === 'mention' ? 'The last post mentions you: answer it.' : 'The last post replies directly to your post: answer if it speaks to you or asks you something; otherwise join in only if you have something to contribute, or listen.')
-          const exclude = [...(lines.sites || []), ...(journal?.source ? sitesOf([{ record: { text: journal.source } }]) : [])]
+          const exclude = [...(lines.sites || []), ...sitesOf([{ record: { text: [journal?.source, ...(journal?.sources || [])].filter(Boolean).join(' ') } }])]
           const known = await acquaintanceNote(kv, n.author?.did, n.author?.handle)
           const { out, data: last, check } = await decide({ env, kv, model, day, exclude, sourceText: lines.join('\n'), user: `THREAD (oldest first)\n${lines.join('\n')}${note}${known}${mem}\n\n${situation}` })
           if (!out || out.pass) {

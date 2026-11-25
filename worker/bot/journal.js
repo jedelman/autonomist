@@ -23,12 +23,12 @@ export function claimsToCheck(draft, article) {
  * Checks the entry's claims against other sources (bot/factcheck.js), never counting the article's own site. Best
  * effort: a search that fails or runs out of budget leaves the entry unchecked rather than unpublished.
  */
-export async function checkClaims({ env, kv, model, day, draft, article, fetch: f = fetch, factCheckFn = factCheck }) {
+export async function checkClaims({ env, kv, model, day, draft, article, exclude = [], fetch: f = fetch, factCheckFn = factCheck }) {
   const out = []
   if (!model.search) return out
   for (const claim of claimsToCheck(draft, article)) {
     try {
-      const c = await factCheckFn({ env, kv, model, day, claim, exclude: [siteOf(article.url)], sourceText: `${article.title}\n${article.text}`, fetch: f })
+      const c = await factCheckFn({ env, kv, model, day, claim, exclude: [...new Set([siteOf(article.url), ...exclude].filter(Boolean))], sourceText: `${article.title}\n${article.text}`, fetch: f })
       if (!c) break
       out.push({ claim: c.claim, verdict: c.verdict, sources: c.sources.map((x) => ({ url: x.url, title: x.title, quote: x.quote, stance: x.stance })), ...(c.republished ? { republished: c.republished } : {}) })
     } catch (e) {
@@ -63,7 +63,7 @@ export async function announce({ kv, api, day }) {
     throw e
   }
   await kv.put(`journal:announce:${day}`, JSON.stringify({ ...a, claimed: true, post: post.uri }), { expirationTtl: 3 * 86400 })
-  await kv.put(`journal:root:${post.uri}`, JSON.stringify({ slug: a.slug, title: a.title, summary: a.summary, question: a.question, url: a.url, source: a.source }), { expirationTtl: 60 * 86400 })
+  await kv.put(`journal:root:${post.uri}`, JSON.stringify({ slug: a.slug, title: a.title, summary: a.summary, question: a.question, url: a.url, source: a.source, ...(a.sources ? { sources: a.sources } : {}) }), { expirationTtl: 60 * 86400 })
   await rememberRoot(kv, post, 'journal')
   return { announced: post.uri }
 }

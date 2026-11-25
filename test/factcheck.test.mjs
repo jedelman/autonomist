@@ -280,3 +280,9 @@ test('language: the post record is tagged with the language given, English by de
   await api.post({ text: 'Who owns your building?' })
   assert.deepEqual(bodies.map((b) => b.record.langs), [['ja'], ['en']])
 })
+
+test('review: a digest\'s fact-checks never count the outlets it read', async () => {
+  const seen = []
+  await checkClaims({ env: {}, kv: memoryKV(), model: { search: () => {} }, day: 'd', draft: { claims_to_check: ['The council voted to sell the complex.'] }, article: { title: '', url: '', text: 'The council voted to sell the complex.' }, exclude: ['a.example', 'b.example'], factCheckFn: async (o) => { seen.push(o.exclude); return { claim: o.claim, verdict: 'unverified', sources: [] } } })
+  assert.deepEqual(seen[0], ['a.example', 'b.example'])
+})

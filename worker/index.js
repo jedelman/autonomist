@@ -185,7 +185,9 @@ export default {
     const path = url.pathname
     if (path.startsWith('/api/admin/')) {
       if (req.method === 'POST' && !sameOrigin(req, env)) return json({ error: 'Not from this site.' }, 403)
-      return adminApi(req, env, path, json)
+      // a dry-run page comes back as HTML (worker/admin.js): it gets the site's security headers like any page
+      const r = await adminApi(req, env, path, json)
+      return (r.headers.get('Content-Type') || '').startsWith('text/html') ? withSecurity(r) : r
     }
     if (path.startsWith('/api/')) {
       if (req.method === 'GET' && path === '/api/session') return session(req, env)

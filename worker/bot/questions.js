@@ -82,11 +82,12 @@ export async function runQuestion({ env, kv, api, model, day, now = new Date() }
     for (const story of digest.stories) {
       if (asked.includes(story.label) || !story.articles?.length) continue
       asked.push(story.label)
-      const counts = `${story.label}: shared by ${Number(story.sharers).toLocaleString('en-US')} people today; ${story.articles.length} article${story.articles.length === 1 ? '' : 's'} read.`
+      // the counts are code's; the label is the clustering call's, shown but never a verified source
+      const counts = `Shared by ${Number(story.sharers).toLocaleString('en-US')} ${Number(story.sharers) === 1 ? 'person' : 'people'} today; ${story.articles.length} article${story.articles.length === 1 ? '' : 's'} read.`
       const notes = story.articles.map((a) => `- ${a.outlet}: ${a.title}\n  Gist: ${a.gist}${a.quotes?.length ? `\n  Passages: ${a.quotes.map((q) => `“${q}”`).join(' ')}` : ''}`).join('\n')
       const texts = [counts, ...story.articles.map((a) => `${a.title}\n${a.text}`)]
       let out = null, last = null
-      let user = `STORY (counted by code)\n${counts}\n\nNOTES ON THE ARTICLES\n${notes}${mem}${recent.length ? `\n\nYOUR RECENT QUESTIONS (don't reuse their openings)\n${recent.map((q) => `- ${q}`).join('\n')}` : ''}`
+      let user = `STORY: ${story.label}\n(counted by code) ${counts}\n\nNOTES ON THE ARTICLES\n${notes}${mem}${recent.length ? `\n\nYOUR RECENT QUESTIONS (don't reuse their openings)\n${recent.map((q) => `- ${q}`).join('\n')}` : ''}`
       for (let attempt = 0; attempt < 2 && !out; attempt++) {
         const { data } = await model.structured({ system: QUESTION_SYSTEM, user, schema: QUESTION_SCHEMA, effort: 'medium', maxTokens: 6000 })
         last = data

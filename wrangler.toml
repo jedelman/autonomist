@@ -70,8 +70,9 @@ BOT_DIGEST_ARTICLES = "40"
 BOT_DIGEST_PER_STORY = "6"
 # Scheduled pipelines that run dry until taken out of this list (dry.js; Jason, 2026-11-25: "produce the artifacts a
 # real run would produce but as test artifacts, never posted"). "digest": the day's digest and its two feed questions
-# become a dry-run artifact on the steward's page instead of being published. Remove it to go live.
-BOT_DRY = "digest"
+# become a dry-run artifact on the steward's page instead of being published. Remove it to go live. The digest went
+# live on 2026-11-25 (Jason: "let's run the digest - a real run").
+BOT_DRY = ""
 # The digest by email (worker/newsletter.js; Jason, 2026-11-25: "Let's also use Resend to make this a newsletter"). Off
 # until all three are set: the secret RESEND_API_KEY (`npx wrangler secret put RESEND_API_KEY`), the Resend segment
 # subscribers are added to, and the sender, on a domain verified in Resend. One broadcast per published digest.

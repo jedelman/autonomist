@@ -17,7 +17,7 @@ import { setting } from '../limits.js'
 import { obj } from './model.js'
 import { candidates } from './sources.js'
 import { fetchArticle, claimsToCheck, checkClaims, announce, COLLECTION } from './journal.js'
-import { FRAMEWORK, frameworkSheet, markUsed } from './framework.js'
+import { FRAMEWORK, frameworkSheet, frameworkOrder, markUsed } from './framework.js'
 import { graphemes } from './text.js'
 import { IDENTITY, VOICE } from './voice.js'
 import { REFLECTION_FIELDS, REFLECTION_RULES, writeLog, memoryNote } from './log.js'
@@ -148,7 +148,7 @@ export function cleanLabel(label) {
 
 export const DIGEST_SYSTEM = `${IDENTITY}
 
-Each day you write a digest: what a network of people is reading, read for the common threads. The network is the accounts Jason Edelman follows on Bluesky. Below are code-counted figures on what they shared today, the stories they shared most, notes on every article you read (each with passages copied from the article), the Power Explained passages you may quote, and your community memory. No one person could read all of this. Your job is the synthesis a person couldn't do: what connects these stories, where they agree and where they pull apart, what pattern runs under them.
+Each day you write a digest: what a network of people is reading, read for the common threads. The network is the accounts Jason Edelman follows on Bluesky. Below are code-counted figures on what they shared today, the stories they shared most, notes on every article you read (each with passages copied from the article, and a tag: A1, A2 and so on), the Power Explained passages you may quote (tagged F1, F2 and so on), and your community memory. No one person could read all of this. Your job is the synthesis a person couldn't do: what connects these stories, where they agree and where they pull apart, what pattern runs under them.
 
 Write the body in exactly these five sections, with these headings, in this order:
 ${DIGEST_SECTIONS.map((s) => `## ${s}`).join('\n')}
@@ -166,7 +166,8 @@ A question to take to your neighbors: exactly one question, concrete and about t
 A program checks these rules before anything is published, and rejects the digest if one fails:
 - Curly double quotes (“ ”) mean verbatim, and they are the only double quotes you may use. Text inside them is copied character for character from one article's passages or one FRAMEWORK passage. Quote from at least three different articles, briefly: each quotation under 30 words, at most ten in all. Name the outlet in the sentence.
 - Every figure appears exactly as written in the NETWORK block, an article's notes or passages, or a FRAMEWORK passage. Don't compute, convert or round.
-- No links, no URLs, no @handles, no hashtags. Never name or describe the people who shared links.
+- Link the articles you draw on, generously, so a reader can follow every thread to its source: a Markdown link whose target is the article's tag, never an address, such as [ProPublica reports](A3) or [a Stateline report that NC Newsline carried](A7). Link each article the first time you use it, and each quotation to the article it comes from. Link a Power Explained passage to its tag, such as [Power Explained](F2). A program puts in each exact address. No other links, no URLs, no @handles, no hashtags. The title, summary and question have no links.
+- Never name or describe the people who shared links.
 - Name only the authors, people and organizations the articles themselves name.
 - Say "Read through Power Explained" at most once; prefer FRAMEWORK passages you haven't used recently (marked).
 
@@ -178,6 +179,28 @@ ${REFLECTION_RULES}`
 
 export const DIGEST_SCHEMA = obj({ title: { type: 'string' }, summary: { type: 'string' }, question: { type: 'string' }, body: { type: 'string' }, claims_to_check: { type: 'array', items: { type: 'string' } }, ...REFLECTION_FIELDS })
 
+const LINK = /\[([^\]\n]{1,300})\]\(\s*([^)\s]{1,600})\s*\)/g
+
+/**
+ * The model links by tag (A3 for the third article read, F2 for the second framework passage on its sheet); this puts in
+ * the exact address. A tag that names nothing, or a link to anything else, keeps its words and loses the link, so a bad
+ * link can't cost a run. Returns the text and the addresses linked.
+ */
+export function resolveLinks(text, { articles = [], framework = [] } = {}) {
+  const linked = new Set()
+  const out = String(text || '').replace(LINK, (whole, label, target) => {
+    const m = target.match(/^([AF])(\d{1,3})$/i)
+    const url = m ? (m[1].toUpperCase() === 'A' ? articles[Number(m[2]) - 1]?.url : framework[Number(m[2]) - 1]?.url) : null
+    if (!url || !/^https?:\/\//.test(url)) return label
+    linked.add(url)
+    return `[${label}](${url})`
+  })
+  return { text: out, linked: [...linked] }
+}
+
+/** The text a reader reads: link targets out, so the addresses' digits and words are never checked as figures. */
+export const withoutTargets = (text) => String(text || '').replace(LINK, (_, label) => label)
+
 /** Checks a digest against everything it may draw on. Returns problems and what passed. */
 export function checkDigest(draft, { articles, block, recentQuestions = [] }) {
   const problems = []
@@ -185,7 +208,15 @@ export function checkDigest(draft, { articles, block, recentQuestions = [] }) {
   if (!d.title || d.title.length > 120) problems.push('the title is missing or longer than 120 characters')
   if (!d.summary || d.summary.length > 400) problems.push('the summary is missing or longer than 400 characters')
   if (!/\?\s*$/.test(d.question || '') || graphemes(d.question || '') > 200) problems.push('the question must be one question under 200 characters, ending with "?"')
-  const body = String(d.body || '')
+  const linkedBody = String(d.body || '')
+  // links go only to what it read and to the framework's pages; everything else is checked as the reader reads it
+  const allowed = new Set([...articles.map((a) => a.url), ...FRAMEWORK.map((p) => p.url)])
+  const links = [...linkedBody.matchAll(LINK)].map((m) => m[2])
+  for (const u of links) if (!allowed.has(u)) problems.push(`link not to an article read or a framework page: ${u.slice(0, 100)}`)
+  if (LINK.test(`${d.title}\n${d.summary}\n${d.question}`)) problems.push('no links in the title, summary or question')
+  LINK.lastIndex = 0
+  const body = withoutTargets(linkedBody)
+  if (/https?:\/\/|www\./i.test(body)) problems.push('no bare addresses: link by tag')
   let at = -1
   for (const s of DIGEST_SECTIONS) {
     const i = body.indexOf(`## ${s}\n`)
@@ -211,16 +242,16 @@ export function checkDigest(draft, { articles, block, recentQuestions = [] }) {
   if (articles.length >= 3 && quoted.size < 3) problems.push(`quote from at least three different articles (now ${quoted.size})`)
   const opening = (q) => normalize(q).split(' ').slice(0, 4).join(' ')
   if (recentQuestions.some((q) => opening(q) === opening(d.question || ''))) problems.push('the question opens the same way as a recent one; ask it differently')
-  const frameworkUrls = [...new Set(v.quotes.map((q) => FRAMEWORK.find((p) => normalize(p.text).includes(normalize(q)))?.url).filter(Boolean))]
+  const frameworkUrls = [...new Set([...v.quotes.map((q) => FRAMEWORK.find((p) => normalize(p.text).includes(normalize(q)))?.url), ...links.filter((u) => FRAMEWORK.some((p) => p.url === u))].filter(Boolean))]
   const usedPassages = FRAMEWORK.filter((p) => v.quotes.some((q) => normalize(p.text).includes(normalize(q)))).map((p) => p.text)
-  return { problems, quotes: v.quotes.length, figures: v.numbers.length, articlesQuoted: quoted.size, frameworkUrls, usedPassages }
+  return { problems, quotes: v.quotes.length, figures: v.numbers.length, articlesQuoted: quoted.size, frameworkUrls, usedPassages, links: links.length }
 }
 
 function digestMessage({ block, stories, articles, used }) {
   const notes = stories.map((s, si) => {
     const as = articles.filter((a) => a.story === si)
     if (!as.length) return ''
-    return `STORY ${si + 1}: ${s.label} (shared by ${n(s.sharers)} people)\n${as.map((a) => `- ${a.outlet}: ${a.title}\n  Gist: ${a.gist}${a.quotes.length ? `\n  Passages: ${a.quotes.map((q) => `“${q}”`).join(' ')}` : ''}`).join('\n')}`
+    return `STORY ${si + 1}: ${s.label} (shared by ${n(s.sharers)} people)\n${as.map((a) => `- A${articles.indexOf(a) + 1} · ${a.outlet}: ${a.title}\n  Gist: ${a.gist}${a.quotes.length ? `\n  Passages: ${a.quotes.map((q) => `“${q}”`).join(' ')}` : ''}`).join('\n')}`
   }).filter(Boolean).join('\n\n')
   return `NETWORK (counted by code; the only source for these figures)\n${block}\n\nNOTES ON THE ARTICLES YOU READ\n\n${notes}\n\nFRAMEWORK (the only Power Explained passages you may quote, each verbatim)\n\n${frameworkSheet(used)}`
 }
@@ -280,6 +311,9 @@ export async function runDigest({ env, kv, api, model, day, fetch: f = fetch, no
         draft = null
         continue
       }
+      // tags become addresses; the title, summary and question keep their words and lose any link
+      const framework = frameworkOrder(used)
+      draft = { ...draft, body: resolveLinks(draft.body, { articles, framework }).text, title: withoutTargets(draft.title), summary: withoutTargets(draft.summary), question: withoutTargets(draft.question) }
       check = checkDigest(draft, { articles, block: verified, recentQuestions })
       if (!check.problems.length) break
       user = `${base}\n\nYOUR PREVIOUS DRAFT\n${JSON.stringify(draft)}\n\nA program rejected it for these reasons:\n${check.problems.map((p) => `- ${p}`).join('\n')}\n\nWrite it again and fix every one. Copy quotations exactly, or don't quote.`

@@ -14,12 +14,13 @@ import { cleanLang } from './atproto.js'
 import { factCheck, checkNote, sitesOf } from './factcheck.js'
 import { BudgetError } from './model.js'
 import { acquaintanceNote } from './acquaint.js'
+import { FORMATION, VOICE } from './voice.js'
 
 const ALLOWED_LINK = /^https:\/\/(autonomist\.jason-edelman\.org|power-explained\.jason-edelman\.org)(\/|$)/
 
 export const REPLY_SYSTEM = `${SYSTEM}
 
-You are replying on Bluesky, from autonomist's own account (@autonomist.jason-edelman.org), which is labeled as a bot. Everything you write here is public.
+You are replying on Bluesky, from autonomist's own account (@autonomist.jason-edelman.org), which is labeled as a bot. Everything you write here is public. ${FORMATION} ${VOICE}
 - Reply to the last post in the thread with one Bluesky post: at most 280 characters, plain text, no markdown, no hashtags, no @mentions.
 - Engage with what the person actually said. If they asked something you can answer, answer plainly first. Then, if it helps, ask one question that opens their situation up. Never more than one question.
 - No figures unless they appear in the thread or the journal entry given below. For calculations, say the chat at autonomist.jason-edelman.org/chat/ can work them through (it's invite-only for now).

@@ -83,22 +83,46 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     project has taken.
   - Take only what's offered, as the research watch does: honor robots.txt and Content-Signal, never get around
     a paywall or block, quote briefly and link, and remove a quotation when a publisher asks.
-  - Automated since 2026-11-23 (below): autonomist writes one a day as a record in its own repository.
+  - Automated since 2026-11-23 (below): autonomist writes one a day as a record in its own repository. Since
+    2026-11-25 that daily entry is a digest of the network's reading, not one article (below).
 - **autonomist on Bluesky** (Jason, 2026-11-23: "Opt out for sources, starting with my follows. Cadence: one blog post a
   day, automatic. For Bluesky: like pinned post to opt in to unsolicited opinions. Autonomist posts problem posing
   questions and engages with all replies."). `worker/bot/`, run by two crons (replies, discussions, opt-in questions and the
   sweep every five minutes; the journal, feed questions, follows and notes hourly at :07); off unless `BOT_ENABLED`.
   - **Sources:** the links that accounts `BOT_SOURCE_ACTOR` follows share (`sources.js`), read only when robots.txt and
-    Content-Signal allow (opt-out, as the research watch).
-  - **The journal, daily and automatic** (`journal.js`): entries are `org.jason-edelman.autonomist.journal` records
-    in its repository, rendered at `/journal/<slug>/` (`journal-pages.js`). This is the one place model-written prose
-    goes on a public page. It's published only when `checkDraft` passes: every quotation verbatim in the article or a
-    `framework.js` passage, every figure present in them, the five sections, no links or @handles. Otherwise the day
-    is skipped. `node scripts/journal-check.mjs --framework` checks the passages against the live site.
+    Content-Signal allow (opt-out, as the research watch). Never its own posts or any `*.jason-edelman.org` link
+    (the 2026-11-24 double post). Each link keeps short one-way ids of the accounts that shared it (`sharerId`, up to
+    twenty), so the digest counts different people without keeping who they are. Self-labeled bots' links are skipped.
+  - **The daily digest** (Jason, 2026-11-25: "Yep, digest replaces. There's plenty of people doing deep analysis but bots
+    excel at broad synthesis. Synthesis should be superhuman - more articles than a single person can read, read for
+    common threads."; `digest.js`). From `BOT_JOURNAL_HOUR_UTC`, once a day: the last day's links (`networkItems`), one
+    model call grouping their titles into stories and dropping what isn't news (`CLUSTER_SYSTEM`), stories ranked by
+    different sharers weighted by relevance (`rankStories`), up to `BOT_DIGEST_ARTICLES` articles read breadth-first
+    across the top `BOT_DIGEST_STORIES` stories, a different outlet each (`chooseArticles`), one small note per article
+    whose passages code keeps only if they're on the page (`NOTE_SYSTEM`), then the synthesis (`DIGEST_SYSTEM`) in
+    five sections (`DIGEST_SECTIONS`). The counts are written by code (`networkBlock`) and are the only source for the
+    digest's own figures. Published only when `checkDigest` passes: every quotation verbatim in an article read or a
+    `framework.js` passage, quotations from at least three different articles, every figure in the articles, the
+    passages or the counts, the five sections, no links or @handles, "Read through Power Explained" at most once, and a
+    question that doesn't open like a recent one. Stored as an `org.jason-edelman.autonomist.journal` record with
+    `kind: 'digest'` and `network` (stories, sharer counts, articles read), rendered at `/journal/<slug>/` with "What
+    the network shared" written by code (`journal-pages.js`). Who shared what is never published. This is the one place
+    model-written prose goes on a public page. The day's stories, notes and texts are kept a day for the feed questions
+    (`digest:day:<day>`). `node scripts/journal-check.mjs --framework` checks the passages against the live site;
+    recently quoted passages go last in the sheet (`framework:used`).
   - **Questions on its own feed** (Jason: "Problem posing questions on it's own feed!"; `questions.js`): at each of
-    `BOT_QUESTION_HOURS_UTC`, one post: a sentence on what an article it read reports, and an open question about the
-    reader's own place, with the article as a link card. `checkQuestion` holds the sentence to the journal's standard.
-    The daily journal post also leads with the entry's question.
+    `BOT_QUESTION_HOURS_UTC`, one post about one more story from the day's digest (never the same story twice a day;
+    the lead story is left to the digest's own post when there are more than two): a sentence on what the articles
+    report, and an open question about the reader's own place, with the story's most-shared article as a link card.
+    `checkQuestion` holds it to the digest's standard against that story's articles and counts. No digest, no question.
+    The daily digest's post also leads with its question. Recent questions are kept (`questions:recent`) so openings
+    don't repeat.
+  - **Who it is, said once** (Jason, 2026-11-25, after the first days' writing spoke of "our co-ops" and "members";
+    `voice.js`). Every bot prompt starts from `IDENTITY`: a public agent on Anthropic's Claude, organizing toward a
+    federation of limited-equity co-ops that doesn't exist yet: no member co-ops, no buildings, no members. `VOICE`:
+    plain, varied, and never about its own software in public. `FABRICATED` refuses reflections and memory that speak
+    of "our co-ops" or what "members" raised: a reflection's "members keep raising" had turned news vocabulary into
+    testimony.
   - **Replies and discussions** (Jason, later the same day: "It's okay if autonomist weighs in on replies in its own
     posts! It should let people discuss but say something when it has something to contribute!"). A mention gets an
     answer (`replies.js`). Under its own posts, each new turn gets a judgment, join in or listen: direct replies via
@@ -117,7 +141,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     (`reflect:*`) and reflected on by the bot. Hourly, new reflections fold into the community memory
     (`org.jason-edelman.autonomist.memory`, a new record per fold, so every version is kept; `cleanMemory`), which
     only the agent writes, and which every prompt reads back inside the user message: replies, discussions, opt-in,
-    questions, the journal, and the chat. Corrections in it are claims, marked confirmed only by one of its own
+    questions, the journal, and the chat. The fold marks each reflection as from a conversation or from its reading,
+    and keeps them apart: "What people told me" holds only conversations, "What I read" the rest. Corrections in it are claims, marked confirmed only by one of its own
     fact-checks, unconfirmed otherwise. Figures stay out of the fold's input, and a refused draft gets one retry, told
     why (`memoryProblems`). Shown at `/thinking/` (`thinking-pages.js`).
   - **Fact-checking with web search** (Jason, 2026-11-23: "Yep, let's build it"; on his research-watch rule, "only
@@ -146,7 +171,9 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     kind, the journal entries, the memory, the last dream): a title, a body of a few hundred words, up to three
     questions it wants to ask, themes. Same rules as reflections (`dreamProblems`, one retry, else withheld and tried
     again later). Stored as `org.jason-edelman.autonomist.dream`, shown on `/thinking/`, and folded into the memory at
-    the next fold (`bot:dream:unfolded`). No dream on a day with nothing new.
+    the next fold (`bot:dream:unfolded`). No dream on a day with nothing new. It sees counts of everything since it began
+    as well as since the last dream, its most recent journal entries, and a brief from code that says when little
+    happened (then it writes under two hundred words).
   - **Watching live** (Jason, 2026-11-23: "I wonder if we could even use Jetstream to watch it in realtime").
     `/thinking/` has a live view (`site/js/live.js`): on a click, the visitor's browser opens a WebSocket to Bluesky's
     public Jetstream, filtered to autonomist's DID and its collections, and renders each new record with
@@ -184,7 +211,11 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     `/known/<handle>/` (`known-pages.js`; noindex). The note is read back before replying to that person (opt-in,
     replies, discussions). It's the one place autonomist writes about a person, so: about what they post about, never
     who they are, written to them in the second person; `cleanAcquaintance` withholds a note with their name or
-    handle, a quote, a figure, a link or a sensitive identity term (topics are kept). Never read: follows, lists,
+    handle, a quote, a figure, a link or a sensitive identity term (topics are kept). No one's name at all, including
+    the authors and thinkers they post about: the note names what those ideas are (Jason, 2026-11-25: "Rather than
+    published authors in notes the themes should be specified - what makes Federici significant (commons governance
+    theory)? What makes Deleuze significant (process ontology)?"). A second model pass lists any person named
+    (`namesIn`), and a note that names anyone is written again. Never read: follows, lists,
     blocks. Unliking deletes the note at the next refresh, but only from a complete, fresh list of likes. Logs record
     that it happened (`acquainted`, `reacquainted`, `forgot`) and never who unliked. `BOT_ACQUAINT_PER_RUN` caps it.
   - **Never:** follow anyone but the opted-in, like, repost, DM, @-mention (no mention facets), or reply unasked to
@@ -208,7 +239,7 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   prompt), `thread.js` and `memory.js` (each invite's one conversation and its memory), `tools.js` (tool schemas and executors), `parcel.js` (Norfolk open data, fields checked live
   2026-11-20), `invites.js` and `limits.js` (adapted from Siren's, MIT), `journal-core.js` (the journal's checks, shared with
   the script), `journal-pages.js` (pages for entries in its repository), `thinking-pages.js` (the run journal and memory
-  at `/thinking/`, and that page's CSP), `checks-html.js` (fact-checks on both pages), `bot/` (autonomist on Bluesky).
+  at `/thinking/`, and that page's CSP), `checks-html.js` (fact-checks on both pages), `bot/` (autonomist on Bluesky; `digest.js` the daily digest, `voice.js` who it is).
 - `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers, case
   studies and the journal; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on
   deploy); `scripts/invites.mjs` the steward's CLI; `scripts/birth.mjs` gives an agent its account on its own PDS

@@ -1,0 +1,195 @@
+// The daily digest (worker/bot/digest.js), questions drawn from it, the sweep's sharer counts, and the framing rules
+// (voice.js). No network.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { memoryKV } from './helpers.mjs'
+import { checkDigest, runDigest, rankStories, chooseArticles, networkBlock, CLUSTER_SCHEMA, NOTE_SCHEMA, DIGEST_SCHEMA } from '../worker/bot/digest.js'
+import { runQuestion } from '../worker/bot/questions.js'
+import { sweep, candidates, sharerId } from '../worker/bot/sources.js'
+import { cleanReflection, memoryProblems } from '../worker/bot/log.js'
+import { frameworkSheet, FRAMEWORK } from '../worker/bot/framework.js'
+import { runAcquaint, ACQUAINTANCE } from '../worker/bot/acquaint.js'
+import { entryHtml } from '../worker/journal-pages.js'
+import { DIGEST_SECTIONS } from '../worker/journal-core.js'
+
+const filler = (n) => ' People in several cities are watching how this plays out for renters and neighbors.'.repeat(n)
+const ARTICLES = {
+  'https://a.example/rent': { title: 'City council freezes rents in older buildings', text: `The council voted to freeze rents in buildings older than forty years. “Tenants packed the chamber for six hours,” the paper reported. Landlords said the freeze would stall repairs.${filler(30)}` },
+  'https://b.example/rent2': { title: 'Rent freeze passes after long night', text: `A rent freeze passed late on Tuesday. “The vote came after midnight,” one organizer said. The measure covers about 9,000 units.${filler(30)}` },
+  'https://c.example/land': { title: 'Farmland bought by investment funds', text: `Investment funds bought more farmland this year. “Land that could feed a town is now a portfolio line,” a farmer said. The state has no cap on such sales.${filler(30)}` },
+  'https://d.example/coop': { title: 'Tenants form a cooperative to buy their building', text: `Residents of a six-story building formed a cooperative to buy it. “We decided to stop waiting for the landlord,” a resident said. They raised a deposit from neighbors.${filler(30)}` },
+  'https://closed.example/x': { title: 'Closed story about rent', text: 'never read' },
+}
+const fetchFake = (seen = []) => async (url) => {
+  const u = String(url)
+  seen.push(u)
+  if (u === 'https://closed.example/robots.txt') return new Response('User-agent: *\nContent-Signal: ai-input=no')
+  if (u.endsWith('/robots.txt')) return new Response('', { status: 404 })
+  const a = ARTICLES[u]
+  if (!a) return new Response('', { status: 404 })
+  return new Response(`<html><head><meta property="og:title" content="${a.title}"><meta property="og:site_name" content="${new URL(u).hostname}"></head><body><article><p>${a.text}</p></article></body></html>`, { headers: { 'content-type': 'text/html' } })
+}
+async function seed(kv, now) {
+  const at = (min) => new Date(now - min * 60e3).toISOString()
+  const put = (key, u, t, s, min) => kv.put(`cand:${key}`, '', { metadata: { u, t, at: at(min), h: 'someone.example', s } })
+  await put('1', 'https://a.example/rent', ARTICLES['https://a.example/rent'].title, ['p1', 'p2', 'p3'], 30)
+  await put('2', 'https://b.example/rent2', ARTICLES['https://b.example/rent2'].title, ['p2', 'p4'], 40)
+  await put('3', 'https://c.example/land', ARTICLES['https://c.example/land'].title, ['p5'], 50)
+  await put('4', 'https://d.example/coop', ARTICLES['https://d.example/coop'].title, ['p6', 'p1'], 60)
+  await put('5', 'https://closed.example/x', ARTICLES['https://closed.example/x'].title, ['p7', 'p8', 'p9', 'p10'], 20)
+  await put('6', 'https://old.example/y', 'Old news', ['p1'], 60 * 30)
+}
+const body = (over = {}) => {
+  const s = {
+    'What the network is reading': 'In the last day, 10 accounts shared 5 links. Rents and land led the day.',
+    'The common threads': `The Herald reports “Tenants packed the chamber for six hours,” while the Ledger heard “The vote came after midnight,” and on land, “Land that could feed a town is now a portfolio line,” a farmer said. In the same week residents said “We decided to stop waiting for the landlord,” which is the other side of the same coin.${filler(25)}`,
+    'For people organizing': `A freeze holds rents still; it doesn't change who owns the building.${filler(10)}`,
+    "What we don't know": '- Whether the freeze will survive a court challenge.\n- Power Explained has taken no position on these stories.',
+    'A question to take to your neighbors': 'If your rent were frozen tomorrow, what would you and your neighbors do with the time it buys?',
+    ...over,
+  }
+  return DIGEST_SECTIONS.map((h) => `## ${h}\n\n${s[h]}`).join('\n\n')
+}
+const draft = (over = {}) => ({ title: 'Rents frozen, land sold, a building bought', summary: 'A day of rent freezes and land sales, read across outlets.', question: 'If your rent were frozen tomorrow, what would you and your neighbors do with the time it buys?', body: body(over.sections), claims_to_check: [], reflection: 'People shared a lot about rent freezes today.', themes: ['rent freezes'], ...over })
+const articles = Object.entries(ARTICLES).filter(([u]) => !u.includes('closed')).map(([url, a]) => ({ url, ...a }))
+const block = networkBlock({ links: 5, accounts: 10, read: 4, closed: 0, stories: [{ label: 'Rent freezes', sharers: 4, articles: [1, 2] }] })
+
+test('digest: a sound digest passes; invented quotes and figures, one-source quoting and the tic are caught', () => {
+  assert.deepEqual(checkDigest(draft(), { articles, block }).problems, [])
+  const p = (over) => checkDigest(draft(over), { articles, block }).problems
+  assert.ok(p({ sections: { 'For people organizing': 'Someone said “this was never in any article at all.”' } }).some((x) => x.startsWith('quote not found')))
+  assert.ok(p({ sections: { 'For people organizing': `Rents fell 37 percent.${filler(10)}` } }).includes('figure not found in any source: 37'))
+  assert.ok(p({ sections: { 'The common threads': `The Herald reports “Tenants packed the chamber for six hours,” and again “Tenants packed the chamber for six hours,” here.${filler(30)}` } }).some((x) => x.startsWith('quote from at least three different articles')))
+  assert.ok(p({ sections: { 'For people organizing': `Read through Power Explained, this. Read through Power Explained, that.${filler(10)}` } }).some((x) => x.startsWith('say "Read through Power Explained" at most once')))
+  assert.ok(p({ body: '## What the network is reading\n\nx' }).some((x) => x.startsWith('missing section')))
+  assert.ok(checkDigest(draft(), { articles, block, recentQuestions: ['If your rent were doubled, who would you call?'] }).problems.some((x) => x.startsWith('the question opens the same way')))
+})
+
+test('digest: ranks stories by different people, reads round-robin across outlets, never a closed page', () => {
+  const items = [
+    { url: 'u1', outlet: 'a', sids: ['x', 'y'], sharers: 2 }, { url: 'u2', outlet: 'b', sids: ['y', 'z'], sharers: 2 },
+    { url: 'u3', outlet: 'a', sids: ['q'], sharers: 1 }, { url: 'u4', outlet: 'a', sids: ['q'], sharers: 1 },
+  ]
+  const ranked = rankStories([{ label: 'Small', items: [2], relevance: 3 }, { label: 'Big', items: [0, 1, 2], relevance: 1 }, { label: 'Dup', items: [3, 99], relevance: 0 }], items)
+  assert.deepEqual(ranked.map((s) => [s.label, s.sharers]), [['Big', 3], ['Small', 1], ['Dup', 1]])
+  // a link belongs to the first story that claims it; the out-of-range index is ignored
+  assert.deepEqual(ranked[0].items.map((i) => i.url), ['u1', 'u2'])
+  // breadth first: every story gets one article before any gets a second
+  assert.deepEqual(chooseArticles(ranked, { max: 3, perStory: 2 }).map((p) => p.map((i) => i.url)), [['u1'], ['u3'], ['u4']])
+  assert.deepEqual(chooseArticles(ranked, { max: 10, perStory: 2 }).map((p) => p.map((i) => i.url)), [['u1', 'u2'], ['u3'], ['u4']])
+})
+
+test('digest: from the network to a published digest, with code-written counts, posted once', async () => {
+  const kv = memoryKV()
+  const now = Date.parse('2026-11-25T13:07:00Z')
+  await seed(kv, now)
+  const seen = []
+  const posts = [], puts = []
+  const api = {
+    session: async () => ({ did: 'did:plc:me' }),
+    call: async (m, nsid, o) => { if (nsid === 'com.atproto.repo.putRecord') puts.push(o.body); return { uri: 'at://did:plc:me/log/1' } },
+    post: async (p) => { posts.push(p); return { uri: 'at://did:plc:me/app.bsky.feed.post/d1', cid: 'c' } },
+  }
+  const prompts = {}
+  const model = {
+    structured: async ({ schema, user }) => {
+      if (schema === CLUSTER_SCHEMA) { prompts.cluster = user; return { data: { stories: [{ label: 'Rent freezes', items: [0, 1, 2], relevance: 3 }, { label: 'Farmland sales', items: [4], relevance: 2 }, { label: 'A tenant co-op', items: [3], relevance: 3 }] } } }
+      if (schema === NOTE_SCHEMA) {
+        const a = Object.values(ARTICLES).find((x) => user.includes(x.title))
+        const real = a.text.match(/“([^”]+)”/)[1]
+        return { data: { gist: `Notes on ${a.title}.`, quotes: [real, 'a passage that is not on the page at all'], themes: ['rent'] } }
+      }
+      if (schema === DIGEST_SCHEMA) { prompts.digest = user; return { data: draft({ sections: { 'What the network is reading': 'In the last day, 10 accounts that Jason Edelman follows shared 5 links.' } }) } }
+      throw new Error('unexpected call')
+    },
+  }
+  const r = await runDigest({ env: { PUBLIC_ORIGIN: 'https://autonomist.jason-edelman.org' }, kv, api, model, day: '2026-11-25', fetch: fetchFake(seen), now })
+  assert.equal(r.published, '2026-11-25-rents-frozen-land-sold-a-building-bought')
+  assert.equal(r.read, 4)
+  // the old link is out of the window; the closed page's robots.txt was read, the page never
+  assert.ok(!prompts.cluster.includes('Old news'))
+  assert.ok(seen.includes('https://closed.example/robots.txt') && !seen.includes('https://closed.example/x'))
+  // only passages really on the page reach the synthesis
+  assert.ok(prompts.digest.includes('“Tenants packed the chamber for six hours,”'.slice(0, 20)) && !prompts.digest.includes('not on the page at all'))
+  assert.ok(prompts.digest.includes('In the last day, 10 accounts that Jason Edelman follows shared 5 links.'))
+  const rec = puts[0].record
+  assert.equal(rec.kind, 'digest')
+  // the closed article's sharers still count toward its story; its page was never read
+  assert.deepEqual(rec.network.stories.map((s) => [s.label, s.sharers, s.articles.length]), [['Rent freezes', 8, 2], ['A tenant co-op', 2, 1], ['Farmland sales', 1, 1]])
+  assert.equal(rec.network.closed, 1)
+  assert.equal(rec.checks.articlesQuoted, 4)
+  assert.equal(posts.length, 1)
+  assert.ok(posts[0].text.includes("From today's digest: Rents frozen"))
+  const stored = await kv.get('digest:day:2026-11-25', 'json')
+  assert.equal(stored.stories.length, 3)
+  assert.equal((await kv.get('questions:recent', 'json'))[0], draft().question)
+  // the page: the network list, escaped, by code
+  const html = entryHtml(rec, { uri: 'at://x', origin: 'https://autonomist.jason-edelman.org' })
+  assert.ok(html.includes('What the network shared') && html.includes('href="https://a.example/rent"') && html.includes('shared by 8 people'))
+  // again the same day: no second digest, no second post
+  const again = await runDigest({ env: {}, kv, api, model, day: '2026-11-25', fetch: fetchFake(), now })
+  assert.equal(again.published, r.published)
+  assert.equal(posts.length, 1)
+})
+
+test('feed questions: one story at a time from the day\'s digest, checked against its articles, once a slot', async () => {
+  const kv = memoryKV()
+  const story = (label, url) => ({ label, sharers: 3, articles: [{ url, title: ARTICLES[url].title, outlet: new URL(url).hostname, gist: 'g', quotes: [], text: ARTICLES[url].text }] })
+  await kv.put('digest:day:2026-11-25', JSON.stringify({ block: '', stories: [story('Rent freezes', 'https://a.example/rent'), story('Farmland sales', 'https://c.example/land'), story('A tenant co-op', 'https://d.example/coop')] }))
+  const posts = []
+  const api = { session: async () => ({ did: 'did:plc:me' }), call: async () => ({ uri: 'at://log' }), post: async (p) => { posts.push(p); return { uri: 'at://q/1', cid: 'c' } } }
+  const prompts = []
+  const answers = [{ framing: 'Investment funds bought more farmland this year, the reporting says.', question: 'Who owns the land around where you live?', reflection: '', themes: [] }]
+  const model = { structured: async ({ user }) => { prompts.push(user); return { data: answers.shift() } } }
+  const now = new Date('2026-11-25T16:07:00Z')
+  const r = await runQuestion({ env: {}, kv, api, model, day: '2026-11-25', now })
+  assert.equal(r.story, 'Farmland sales') // the digest's own post already covered the lead story
+  assert.ok(prompts[0].includes('Farmland sales: shared by 3 people today'))
+  assert.equal(posts[0].card.uri, 'https://c.example/land')
+  assert.deepEqual(await runQuestion({ env: {}, kv, api, model, day: '2026-11-25', now }), { skipped: 'already asked this slot' })
+  assert.deepEqual(await runQuestion({ env: {}, kv: memoryKV(), api, model, day: '2026-11-25', now }), { skipped: 'no digest today yet' })
+})
+
+test('sweep: a link shared by several people counts each once; self-labeled bots are skipped', async () => {
+  const kv = memoryKV()
+  const now = Date.now()
+  await kv.put('bot:follows', JSON.stringify({ at: now, follows: [{ did: 'did:plc:a' }, { did: 'did:plc:b' }, { did: 'did:plc:r' }] }))
+  const post = (did, labels = []) => ({ post: { uri: `at://${did}/p/1`, author: { did, handle: `${did.slice(8)}.example`, labels }, indexedAt: new Date(now - 3600e3).toISOString(), embed: { external: { uri: 'https://news.example/x', title: 'T' } } } })
+  const api = { pub: async (nsid, p) => ({ feed: [p.actor === 'did:plc:r' ? post(p.actor, [{ val: 'bot', src: 'did:plc:r' }]) : post(p.actor)] }) }
+  await sweep(api, kv, 3, now)
+  await sweep(api, kv, 3, now) // the same accounts again: still counted once each
+  const [c] = await candidates(kv)
+  assert.equal(c.sharers, 2)
+  assert.deepEqual(c.sids.sort(), [await sharerId('did:plc:a'), await sharerId('did:plc:b')].sort())
+})
+
+test('voice: reflections and the memory may not invent a federation; fresh framework passages come first', () => {
+  assert.equal(cleanReflection('Members keep raising who decides eligibility.').withheld, true)
+  assert.equal(cleanReflection('I wondered whether our co-ops would qualify.').withheld, true)
+  assert.equal(cleanReflection('Someone asked who decides eligibility, and I could not answer well.').withheld, false)
+  assert.ok(memoryProblems('## What people told me\n- members have raised repairs').some((p) => p.includes("members or our co-ops")))
+  const sheet = frameworkSheet([FRAMEWORK[1].text])
+  assert.ok(sheet.indexOf(FRAMEWORK[1].text) > sheet.indexOf(FRAMEWORK[0].text) && sheet.includes('(used recently: prefer others)'))
+})
+
+test('notes: a note that names a thinker is written again with the theme instead', async () => {
+  const ME = 'did:plc:aaaaaaaaaaaaaaaaaaaaaaaa', ANA = 'did:plc:bbbbbbbbbbbbbbbbbbbbbbbb'
+  const kv = memoryKV()
+  await kv.put('bot:optin', JSON.stringify({ at: Date.now(), complete: true, people: [{ did: ANA, handle: 'ana.example', read: true }] }))
+  const puts = []
+  const api = {
+    session: async () => ({ did: ME }),
+    pub: async (nsid) => (nsid === 'app.bsky.actor.getProfile' ? { handle: 'ana.example', displayName: 'Ana' } : { feed: [{ post: { uri: `at://${ANA}/p/1`, author: { did: ANA }, record: { text: 'On the commons today.', createdAt: '2026-11-24T00:00:00Z' } } }] }),
+    call: async (m, nsid, o) => { if (nsid === 'com.atproto.repo.putRecord') puts.push(o.body.record); return nsid === 'com.atproto.repo.listRecords' ? { records: [] } : { uri: 'at://x' } },
+  }
+  const notes = ['You post about the commons through Federici.', 'You post about commons governance theory and shared land.']
+  const prompts = []
+  const model = { structured: async ({ user, schema }) => {
+    if (schema.properties.names) return { data: { names: user.includes('Federici') ? ['Federici'] : [] } }
+    prompts.push(user)
+    return { data: { note: notes.shift(), topics: ['the commons'] } }
+  } }
+  await runAcquaint({ env: {}, kv, api, model, fetch: async () => new Response('', { status: 404 }) })
+  assert.equal(puts[0].note, 'You post about commons governance theory and shared land.')
+  assert.ok(prompts[1].includes('it names people (Federici)'))
+})

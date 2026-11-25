@@ -91,7 +91,9 @@ a.linklike, button.linklike { background: none; border: 0; padding: 0; color: va
 ul.log { list-style: none; padding: 0; }
 ul.log li { border-top: 1px solid var(--line); padding: 0.75rem 0; }
 ul.log li p { margin: 0.2rem 0; }
-ul.checks { padding-left: 1.1rem; }
+ul.checks, ul.network { padding-left: 1.1rem; }
+ul.network > li { margin: 0.7rem 0; }
+ul.network p { margin: 0.15rem 0; }
 ul.checks > li { margin: 0.6rem 0; }
 ul.checks p { margin: 0.15rem 0; }
 .live-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }

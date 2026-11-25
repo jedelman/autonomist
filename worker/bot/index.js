@@ -8,7 +8,6 @@
 import { client } from './atproto.js'
 import { structured, searchCall } from './model.js'
 import { refreshFollows, sweep } from './sources.js'
-import { runJournal } from './journal.js'
 import { runReplies } from './replies.js'
 import { ensurePinned, refreshOptins, syncFollows, runOptin } from './optin.js'
 import { runAcquaint } from './acquaint.js'
@@ -17,14 +16,12 @@ import { runDiscussions } from './threads.js'
 import { drainChatReflections, foldMemory } from './log.js'
 import { runDream } from './dream.js'
 import { recheckEntries } from './journal.js'
+import { runDigest } from './digest.js'
 import { setting } from '../limits.js'
-import firstEntry from '../../content/journal/2026-11-23-piketty-global-justice.md'
-import { frontMatter } from '../journal-core.js'
 
 export const FAST = '*/5 * * * *'
 export const HOURLY = '7 * * * *'
 
-const EXAMPLE = frontMatter(firstEntry).body.replace(/<p class="byline">[\s\S]*?<\/p>\n*/, '').replace(/<p class="muted">[\s\S]*?<\/p>\n*/, '').trim()
 
 export async function runBot(env, event, { pdsFetch, create } = {}) {
   if (env.BOT_ENABLED !== 'true' || !env.KV || !env.PDS_PASSWORD) return
@@ -46,6 +43,7 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
       },
     } : {}),
   }
+  const started = Date.now()
   const step = async (name, fn) => {
     try { console.log(JSON.stringify({ bot: name, ok: true, result: await fn() })) } catch (e) { console.log(JSON.stringify({ bot: name, ok: false, error: String(e?.message || e).slice(0, 300) })) }
   }
@@ -67,8 +65,10 @@ export async function runBot(env, event, { pdsFetch, create } = {}) {
     // likes first, then follows and notes, so a new opt-in is followed and known before any question to them
     await step('optins', async () => refreshOptins({ kv, api, me: (await api.session()).did }))
     await step('follows-optin', async () => syncFollows({ kv, api, me: (await api.session()).did }))
-    await step('acquaint', () => runAcquaint({ env, kv, api, model }))
-    if (now.getUTCHours() >= setting(env.BOT_JOURNAL_HOUR_UTC, 13, { min: 0, max: 23 })) await step('journal', () => runJournal({ env, kv, api, model, day, example: EXAMPLE }))
+    // the digest first: it reads dozens of articles, and everything after it stops starting new work near the cron's
+    // fifteen-minute wall
+    if (now.getUTCHours() >= setting(env.BOT_JOURNAL_HOUR_UTC, 13, { min: 0, max: 23 })) await step('journal', () => runDigest({ env, kv, api, model, day }))
+    await step('acquaint', () => runAcquaint({ env, kv, api, model, deadline: started + 9 * 60_000 }))
     await step('question', () => runQuestion({ env, kv, api, model, day, now }))
     // fact-checks made by an older checker are redone, one entry a run
     await step('recheck', () => recheckEntries({ env, kv, api, model, day }))

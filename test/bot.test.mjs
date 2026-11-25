@@ -4,10 +4,10 @@ import assert from 'node:assert/strict'
 import { memoryKV } from './helpers.mjs'
 import { graphemes, bytes, fits, linkFacets } from '../worker/bot/text.js'
 import { normalizeUrl, linksFromItem, sweep, candidates } from '../worker/bot/sources.js'
-import { checkDraft, runJournal, COLLECTION } from '../worker/bot/journal.js'
 import { runReplies, vetReply } from '../worker/bot/replies.js'
 import { ensurePinned, runOptin, refreshOptins, PINNED_TEXT, PROFILE_DESCRIPTION } from '../worker/bot/optin.js'
 import { checkQuestion, dueSlot, runQuestion } from '../worker/bot/questions.js'
+import { checkDigest } from '../worker/bot/digest.js'
 import { fetchReadable, numberIn, normalize, readArticle } from '../worker/journal-core.js'
 import { candidateMetadata } from '../worker/bot/sources.js'
 import { fillShell } from '../worker/journal-pages.js'
@@ -63,24 +63,6 @@ test('sources: a sweep reads the next accounts, keeps fresh links as candidates,
   assert.equal(c[0].url, 'https://news.example/x')
 })
 
-test('journal: a sound draft passes; invented quotes, figures, links, handles and missing sections are caught', () => {
-  const ok = checkDraft(draft(), article)
-  assert.deepEqual(ok.problems, [])
-  assert.equal(ok.quotes, 2)
-  assert.deepEqual(ok.frameworkUrls, [FRAMEWORK[1].url])
-  const fake = checkDraft(draft({ sections: { 'What it says': 'The council sold it. “Tenants were thrilled,” the article says.' } }), article)
-  assert.ok(fake.problems.some((p) => p.startsWith('quote not found')))
-  const num = checkDraft(draft({ sections: { 'What it says': 'It sold for $52 million. “We found out from the newspaper.”' } }), article)
-  assert.ok(num.problems.includes('figure not found in any source: 52'))
-  const link = checkDraft(draft({ sections: { 'What it says': 'See https://evil.example now. “We found out from the newspaper.”' } }), article)
-  assert.ok(link.problems.some((p) => p.startsWith('link not allowed')))
-  const handle = checkDraft(draft({ sections: { 'What it says': 'As @someone.bsky.social said. “We found out from the newspaper.”' } }), article)
-  assert.ok(handle.problems.includes('no @handles'))
-  assert.ok(checkDraft({ ...draft(), body: '## What it says\n\nx' }, article).problems.some((p) => p.startsWith('missing section')))
-  assert.ok(checkDraft(draft({ question: 'Not a question.' }), article).problems.some((p) => p.startsWith('the question')))
-  assert.ok(checkDraft(draft({ sections: { 'What it says': 'They said "tenants loved it". “We found out from the newspaper.”' } }), article).problems.some((p) => p.startsWith('no straight double quotes')))
-})
-
 function fakeApi({ notifications = [], threads = {}, likes = [], feeds = {} } = {}) {
   const calls = [], posts = []
   let n = 0
@@ -102,51 +84,6 @@ function fakeApi({ notifications = [], threads = {}, likes = [], feeds = {} } = 
     post: async (p) => { posts.push(p); n++; return { uri: `at://did:plc:me/app.bsky.feed.post/${n}`, cid: `c${n}` } },
   }
 }
-
-test('journal: picks, reads an open page, writes, checks, stores the record in its repo and posts the question', async () => {
-  const kv = memoryKV()
-  await kv.put('cand:abc', '', { metadata: { u: article.url, t: article.title, d: 'd', h: 'friend.example', p: 'at://did:plc:f/app.bsky.feed.post/9', at: new Date().toISOString() } })
-  const api = fakeApi()
-  const answers = [{ picks: [{ index: 0, why: 'housing' }] }, draft()]
-  const model = { structured: async () => ({ data: answers.shift() }) }
-  const html = `<html><head><meta property="og:title" content="${article.title}"><meta property="og:site_name" content="News Example"></head><body><article>${ARTICLE_TEXT.split('. ').map((s) => `<p>${s}. ${'Context sentence about the city and its tenants. '.repeat(10)}</p>`).join('')}</article></body></html>`
-  const f = async (url) => (String(url).endsWith('/robots.txt') ? new Response('', { status: 404 }) : new Response(html, { headers: { 'content-type': 'text/html' } }))
-  const r = await runJournal({ env: { PUBLIC_ORIGIN: 'https://autonomist.jason-edelman.org' }, kv, api, model, day: '2026-11-24', fetch: f })
-  assert.equal(r.published, '2026-11-24-a-sale-nobody-asked-the-tenants-about')
-  const put = api.calls.find((c) => c.nsid === 'com.atproto.repo.putRecord')
-  assert.equal(put.opts.body.collection, COLLECTION)
-  assert.equal(put.opts.body.record.via.handle, 'friend.example')
-  assert.deepEqual(put.opts.body.record.sources, [article.url, FRAMEWORK[1].url])
-  assert.equal(api.posts.length, 1)
-  assert.ok(api.posts[0].text.startsWith('Who on your block would you call first?'))
-  assert.equal(api.posts[0].card.uri, `https://autonomist.jason-edelman.org/journal/${r.published}/`)
-  assert.ok(await kv.get('journal:done:2026-11-24'))
-  const again = await runJournal({ env: {}, kv, api, model, day: '2026-11-24', fetch: f })
-  assert.equal(again.published, r.published)
-  assert.equal(api.posts.length, 1)
-})
-
-test('journal: a page closed by Content-Signal is never fetched, and a draft that fails twice is not published', async () => {
-  const kv = memoryKV()
-  await kv.put('cand:abc', '', { metadata: { u: 'https://closed.example/a', t: 'Closed', at: new Date().toISOString() } })
-  await kv.put('cand:def', '', { metadata: { u: article.url, t: 'Open', at: new Date(Date.now() - 1000).toISOString() } })
-  const api = fakeApi()
-  const bad = draft({ sections: { 'What it says': '“Invented words entirely.”' } })
-  const answers = [{ picks: [{ index: 0, why: '' }, { index: 1, why: '' }] }, bad, bad]
-  const model = { structured: async () => ({ data: answers.shift() }) }
-  const fetched = []
-  const f = async (url) => {
-    fetched.push(String(url))
-    if (String(url) === 'https://closed.example/robots.txt') return new Response('User-agent: *\nContent-Signal: ai-input=no')
-    if (String(url).endsWith('/robots.txt')) return new Response('', { status: 404 })
-    return new Response(`<p>${ARTICLE_TEXT} ${'More reporting on the sale and the tenants. '.repeat(40)}</p>`, { headers: { 'content-type': 'text/html' } })
-  }
-  const r = await runJournal({ env: {}, kv, api, model, day: '2026-11-24', fetch: f })
-  assert.equal(r.skipped, 'nothing passed')
-  assert.ok(!fetched.includes('https://closed.example/a'))
-  assert.equal(api.posts.length, 0)
-  assert.equal(api.calls.filter((c) => c.nsid === 'com.atproto.repo.putRecord').length, 0)
-})
 
 test('replies: answers a reply in its thread, once; caps a bot; skips spam; moves the cursor', async () => {
   const kv = memoryKV()
@@ -279,33 +216,16 @@ test('questions: due slots; a sound question passes; invented figures, links, ha
   assert.equal(dueSlot([16, 20], new Date('2026-11-24T15:59:00Z')), null)
   assert.equal(dueSlot([16, 20], new Date('2026-11-24T17:10:00Z')), 16)
   assert.equal(dueSlot([16, 20], new Date('2026-11-24T23:00:00Z')), 20)
-  const ok = checkQuestion({ framing: 'A report in News Example says the council sold a 140-unit complex to a developer.', question: 'Who would your building be sold to, and would anyone ask you first?' }, article)
+  const src = { texts: [`${article.title}\n${article.text}`] }
+  const ok = checkQuestion({ framing: 'A report in News Example says the council sold a 140-unit complex to a developer.', question: 'Who would your building be sold to, and would anyone ask you first?' }, src)
   assert.deepEqual(ok.problems, [])
   assert.ok(ok.text.endsWith('first?'))
-  assert.ok(checkQuestion({ framing: 'The council sold 900 units.', question: 'Who owns yours?' }, article).problems.includes('figure not found in any source: 900'))
-  assert.ok(checkQuestion({ framing: 'See https://x.example', question: 'Who owns yours?' }, article).problems.includes('no links'))
-  assert.ok(checkQuestion({ framing: 'As @a.example says.', question: 'Who owns yours?' }, article).problems.includes('no @handles'))
-  assert.ok(checkQuestion({ framing: 'x'.repeat(270), question: 'Who owns yours?' }, article).problems.some((p) => p.startsWith('too long')))
-  assert.ok(checkQuestion({ framing: 'Tenants met.', question: 'Not a question.' }, article).problems.some((p) => p.startsWith('the question')))
-})
-
-test('questions: at a due slot, reads an open article, posts the question with the article as a card, once', async () => {
-  const kv = memoryKV()
-  await kv.put('cand:abc', '', { metadata: { u: article.url, t: article.title, at: new Date().toISOString() } })
-  const api = fakeApi()
-  const answers = [{ picks: [{ index: 0, why: '' }] }, { framing: 'A report in News Example says the council sold a 140-unit complex.', question: 'Who would your building be sold to, and would anyone ask you first?' }]
-  const model = { structured: async () => ({ data: answers.shift() }) }
-  const html = `<html><head><meta property="og:title" content="${article.title}"><meta property="og:description" content="The sale."></head><body><p>${ARTICLE_TEXT} ${'More reporting on the sale and the tenants. '.repeat(40)}</p></body></html>`
-  const f = async (url) => (String(url).endsWith('/robots.txt') ? new Response('', { status: 404 }) : new Response(html, { headers: { 'content-type': 'text/html' } }))
-  const now = new Date('2026-11-24T16:02:00Z')
-  const r = await runQuestion({ env: {}, kv, api, model, day: '2026-11-24', now, fetch: f })
-  assert.equal(r.slot, 16)
-  assert.equal(api.posts.length, 1)
-  assert.ok(api.posts[0].text.endsWith('ask you first?'))
-  assert.equal(api.posts[0].card.uri, article.url)
-  assert.equal(api.posts[0].card.description, 'The sale.')
-  assert.deepEqual(await runQuestion({ env: {}, kv, api, model, day: '2026-11-24', now, fetch: f }), { skipped: 'already asked this slot' })
-  assert.deepEqual(await runQuestion({ env: {}, kv, api, model, day: '2026-11-24', now: new Date('2026-11-24T10:00:00Z'), fetch: f }), { skipped: 'no question due yet' })
+  assert.ok(checkQuestion({ framing: 'The council sold 900 units.', question: 'Who owns yours?' }, src).problems.includes('figure not found in any source: 900'))
+  assert.ok(checkQuestion({ framing: 'See https://x.example', question: 'Who owns yours?' }, src).problems.includes('no links'))
+  assert.ok(checkQuestion({ framing: 'As @a.example says.', question: 'Who owns yours?' }, src).problems.includes('no @handles'))
+  assert.ok(checkQuestion({ framing: 'x'.repeat(270), question: 'Who owns yours?' }, src).problems.some((p) => p.startsWith('too long')))
+  assert.ok(checkQuestion({ framing: 'Tenants met.', question: 'Not a question.' }, src).problems.some((p) => p.startsWith('the question')))
+  assert.ok(checkQuestion({ framing: 'A report in News Example says the council sold a 140-unit complex.', question: 'Who on your block would you ask first?' }, { ...src, recent: ['Who on your block knows the landlord?'] }).problems.some((p) => p.startsWith('the question opens the same way')))
 })
 
 // Regression tests for the independent review's reproduced findings (2026-11-23).
@@ -361,36 +281,18 @@ test('review 4: a post that mentions autonomist and is seen by the opt-in sweep 
   assert.equal(api.posts.filter((p) => p.reply?.parent?.uri === postUri).length, 1)
 })
 
-test('review 5: a failed announcement never makes a second entry, and is retried until it goes out', async () => {
-  const kv = memoryKV()
-  await kv.put('cand:abc', '', { metadata: { u: article.url, t: article.title, at: new Date().toISOString() } })
-  const api = fakeApi()
-  const realPost = api.post
-  let fail = 1
-  api.post = async (p) => { if (fail-- > 0) throw new Error('createRecord 500'); return realPost(p) }
-  const answers = [{ picks: [{ index: 0, why: '' }] }, draft(), { picks: [{ index: 0, why: '' }] }, draft({ title: 'Second take' })]
-  const model = { structured: async () => ({ data: answers.shift() }) }
-  const html = `<p>${ARTICLE_TEXT} ${'More reporting on the sale and the tenants. '.repeat(40)}</p>`
-  const f = async (url) => (String(url).endsWith('/robots.txt') ? new Response('', { status: 404 }) : new Response(html, { headers: { 'content-type': 'text/html' } }))
-  await assert.rejects(runJournal({ env: {}, kv, api, model, day: '2026-11-24', fetch: f }))
-  const r2 = await runJournal({ env: {}, kv, api, model, day: '2026-11-24', fetch: f })
-  assert.ok(r2.announced)
-  assert.equal(api.calls.filter((c) => c.nsid === 'com.atproto.repo.putRecord').length, 1)
-  assert.equal(api.posts.length, 1)
-})
-
 test('review 6-7: figures must match whole numbers; blockquotes, other quote marks and one-word quotes are refused', () => {
   const t = normalize(article.text + ' Published in 2026.')
   assert.equal(numberIn('14', t), false)
   assert.equal(numberIn('20', t), false)
   assert.equal(numberIn('140', t), true)
-  const bad = (what) => checkDraft(draft({ sections: { 'What it says': `${what} “We found out from the newspaper.”` } }), article).problems
+  const bad = (what) => checkDigest({ title: 'T', summary: 'S', question: 'Q?', body: `## What the network is reading\n\n${what} “We found out from the newspaper.”` }, { articles: [article], block: '' }).problems
   assert.ok(bad('Rents rose 14 percent.').includes('figure not found in any source: 14'))
   assert.ok(bad('\n> Tenants were thrilled.\n').some((p) => p.startsWith('no blockquotes')))
   assert.ok(bad('They said ‘never asked.’').some((p) => p.startsWith('no quote marks')))
   assert.ok(bad('A “private” deal.').some((p) => p.startsWith('a quotation must be at least two words')))
   assert.ok(bad('[report](/\\evil.example/x)').includes('no links'))
-  assert.ok(checkQuestion({ framing: 'Rents rose 14 percent, says the report.', question: 'Who owns yours?' }, article).problems.includes('figure not found in any source: 14'))
+  assert.ok(checkQuestion({ framing: 'Rents rose 14 percent, says the report.', question: 'Who owns yours?' }, { texts: [article.text] }).problems.includes('figure not found in any source: 14'))
 })
 
 test('review 8, 14: pages refuse /\\host links, and $ patterns in third-party text are inert', () => {

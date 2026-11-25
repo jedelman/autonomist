@@ -61,8 +61,13 @@ BOT_ENABLED = "true"
 BOT_HANDLE = "autonomist.jason-edelman.org"
 # Whose follows are the journal's sources (Jason, 2026-11-23: "starting with my follows").
 BOT_SOURCE_ACTOR = "jason-edelman.org"
-# The journal is written from this UTC hour on (13 = 8 AM New York in winter), once a day.
+# The daily digest (digest.js; Jason, 2026-11-25: "Synthesis should be superhuman - more articles than a single person
+# can read, read for common threads"): from this UTC hour on (13 = 8 AM New York in winter), once a day; the most-shared
+# stories, articles read in all, and outlets read per story.
 BOT_JOURNAL_HOUR_UTC = "13"
+BOT_DIGEST_STORIES = "8"
+BOT_DIGEST_ARTICLES = "40"
+BOT_DIGEST_PER_STORY = "6"
 # Its daily dream, from this UTC hour on (7 = 2 AM New York in winter; dream.js).
 BOT_DREAM_HOUR_UTC = "7"
 # Problem-posing questions on its own feed, one at each of these UTC hours (16, 20 = 11 AM, 3 PM New York in winter).

@@ -76,10 +76,15 @@ export function clipBytes(s, max) {
 }
 
 /** KV metadata for a candidate, under KV's 1,024-byte limit whatever the script. */
-export function candidateMetadata(l) {
-  const m = { u: clipBytes(l.url, 300), t: clipBytes(l.title, 200), d: clipBytes(l.description, 250), h: clipBytes(l.handle, 60), p: clipBytes(l.post, 120), at: String(l.at || '').slice(0, 30) }
+export function candidateMetadata(l, sids = []) {
+  // s: short ids (hashes) of the accounts that shared it, so the digest can count different people without keeping
+  // who they are; up to twenty
+  const m = { u: clipBytes(l.url, 300), t: clipBytes(l.title, 200), d: clipBytes(l.description, 200), h: clipBytes(l.handle, 60), p: clipBytes(l.post, 120), at: String(l.at || '').slice(0, 30), s: sids.slice(0, 20) }
   return enc.encode(JSON.stringify(m)).length <= 1000 ? m : { ...m, d: '' }
 }
+
+/** A short, one-way id for an account: enough to count different sharers, not to say who they are. */
+export const sharerId = async (did) => (await hashUrl(`sharer:${did}`)).slice(0, 8)
 
 /** Reads the next `n` followed accounts' recent posts and stores the links they shared as candidates. */
 export async function sweep(api, kv, n, now = Date.now()) {
@@ -92,12 +97,19 @@ export async function sweep(api, kv, n, now = Date.now()) {
       const who = list.follows[(start + k) % list.follows.length]
       read++
       const feed = await api.pub('app.bsky.feed.getAuthorFeed', { actor: who.did, limit: 10, filter: 'posts_no_replies' }).catch(() => null)
+      const sid = await sharerId(who.did)
       for (const item of feed?.feed || []) {
         if (now - Date.parse(item.post?.indexedAt || 0) > 1.5 * DAY) continue
+        // a self-labeled bot's links aren't the network's reading
+        if ((item.post?.author?.labels || []).some((l) => l.val === 'bot' && l.src === item.post.author.did)) continue
         for (const l of linksFromItem(item)) {
           if (l.url.length > 300) continue
           try {
-            await kv.put(`cand:${await hashUrl(l.url)}`, '', { metadata: candidateMetadata(l), expirationTtl: 2 * 86400 })
+            const key = `cand:${await hashUrl(l.url)}`
+            // the same link from someone else adds them to its sharers
+            const prev = kv.getWithMetadata ? (await kv.getWithMetadata(key))?.metadata : null
+            const sids = [...new Set([...(prev?.s || []), sid])]
+            await kv.put(key, '', { metadata: candidateMetadata(prev?.at && prev.at < l.at ? { ...l, at: prev.at } : l, sids), expirationTtl: 2 * 86400 })
             found++
           } catch { failed++ }
         }
@@ -117,8 +129,8 @@ export async function candidates(kv, covered = new Set(), limit = 150) {
   do {
     const page = await kv.list({ prefix: 'cand:', cursor })
     // candidates stored before the own-links rule are skipped here too
-    for (const k of page.keys) if (k.metadata?.u && !covered.has(k.name.slice(5)) && !isOwn(k.metadata.u) && !OWN_HANDLES.test(k.metadata.h || '')) out.push({ key: k.name.slice(5), url: k.metadata.u, title: k.metadata.t, description: k.metadata.d, handle: k.metadata.h, post: k.metadata.p, at: k.metadata.at })
+    for (const k of page.keys) if (k.metadata?.u && !covered.has(k.name.slice(5)) && !isOwn(k.metadata.u) && !OWN_HANDLES.test(k.metadata.h || '')) out.push({ key: k.name.slice(5), url: k.metadata.u, title: k.metadata.t, description: k.metadata.d, handle: k.metadata.h, post: k.metadata.p, at: k.metadata.at, sids: k.metadata.s?.length ? k.metadata.s : [k.metadata.h || k.name], sharers: Math.max(1, k.metadata.s?.length || 0) })
     cursor = page.list_complete ? undefined : page.cursor
-  } while (cursor && out.length < 2000)
+  } while (cursor && out.length < 6000)
   return out.sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, limit)
 }

@@ -4,6 +4,7 @@ export function memoryKV() {
   return {
     m,
     async get(k, type) { const e = m.get(k); if (!e) return null; return type === 'json' ? JSON.parse(e.v) : e.v },
+    async getWithMetadata(k) { const e = m.get(k); return e ? { value: e.v, metadata: e.metadata ?? null } : { value: null, metadata: null } },
     async put(k, v, opts = {}) { m.set(k, { v: String(v), metadata: opts.metadata }) },
     async delete(k) { m.delete(k) },
     async list({ prefix = '' } = {}) { return { keys: [...m].filter(([k]) => k.startsWith(prefix)).map(([name, e]) => ({ name, metadata: e.metadata })), list_complete: true } },

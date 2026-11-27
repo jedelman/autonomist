@@ -30,11 +30,11 @@ export const POWER_MAP_SCHEMA = {
 
 export const POWER_MAP_RULES = `Also give power_map: one row for each common thread, two to four rows, each read through Power Explained. For each row:
 - thread: the thread, in a few words.
-- holds: who holds the power in it: the institutions, offices, companies or officials the articles name. Never a private person.
+- holds: who holds the power in it: the institutions, offices, companies or officials the articles name. A who, never a law, a bill or a document (name who wields it). Never a private person.
 - at_stake: what's at stake: the resource, the decision or the right.
 - bears_cost: who bears the cost.
 - direction: which way the thread moves: "toward enclosure" (value or control going to private ownership or an unaccountable few), "toward the commons" (governed collectively by the people who use it), or "contested" (it could go either way, or the articles disagree).
-- evidence: one or two passages that show it, each copied exactly from the article you tag (A1, A2 and so on), 4 to 40 words, without quotation marks.
+- evidence: one or two passages that show the power, the stake or the cost (not passages that only mention the topic), each copied exactly from the article you tag (A1, A2 and so on), 4 to 40 words, without quotation marks.
 Each field under 100 characters, plain words: no quotation marks, links, handles, or figures that aren't in the articles. A program drops any row whose evidence isn't in the article it tags.`
 
 /** Checks the power map against the articles read. Returns the rows to publish (none unless two pass) and the problems. */

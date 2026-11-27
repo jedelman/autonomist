@@ -193,3 +193,16 @@ test('the journal index: a digest shows its lead story’s image; an entry witho
   assert.ok(html.includes(`<li class="has-thumb"><img class="thumb" src="/journal/img/${CID}"`))
   assert.equal(html.match(/<img/g).length, 1)
 })
+
+test('pages are read in the character set they declare, and a headline loses the site name tacked on its end', async () => {
+  const { pageText, withoutSiteName } = await import('../worker/journal-core.js')
+  // "vídeo" in Latin-1: one byte for the í, which read as UTF-8 became "�" (El Mundo, 2026-11-27)
+  const latin1 = new Uint8Array([...new TextEncoder().encode('<title>Un v'), 0xed, ...new TextEncoder().encode('deo</title>')])
+  assert.equal(await pageText(new Response(latin1, { headers: { 'content-type': 'text/html; charset=ISO-8859-1' } })), '<title>Un vídeo</title>')
+  const meta = new Uint8Array([...new TextEncoder().encode('<meta charset="windows-1252"><p>v'), 0xed, ...new TextEncoder().encode('deo</p>')])
+  assert.equal(await pageText(new Response(meta, { headers: { 'content-type': 'text/html' } })), '<meta charset="windows-1252"><p>vídeo</p>')
+  assert.equal(await pageText(new Response('café ok', { headers: { 'content-type': 'text/html; charset=x-unknown' } })), 'café ok')
+  assert.equal(withoutSiteName('Mason County data center named one of biggest potential polluters · West Virginia Watch', 'West Virginia Watch'), 'Mason County data center named one of biggest potential polluters')
+  assert.equal(withoutSiteName('Why the Watch matters', 'West Virginia Watch'), 'Why the Watch matters')
+  assert.equal(readArticle('<meta property="og:title" content="Rents rise | The Paper"><meta property="og:site_name" content="The Paper">', 'https://p.example/').title, 'Rents rise')
+})

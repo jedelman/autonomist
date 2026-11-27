@@ -1,7 +1,7 @@
 // The journal's shared pieces. Since 2026-11-25 each day's entry is a digest of the network's reading (digest.js);
 // this file keeps what every entry uses: reading an article under robots.txt and Content-Signal, checking claims
 // against other sources, rechecking entries made by an older checker, and posting the day's entry on Bluesky once.
-import { readArticle, fetchReadable, verifyBody, hasControlChars, normalize } from '../journal-core.js'
+import { readArticle, fetchReadable, verifyBody, hasControlChars, normalize, pageText } from '../journal-core.js'
 import { fits } from './text.js'
 import { rememberRoot } from './threads.js'
 import { writeLog } from './log.js'
@@ -45,7 +45,7 @@ export async function fetchArticle(url, f, cache) {
   const { res, url: at } = await fetchReadable(url, { fetch: f, cache })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   if (!/html/i.test(res.headers.get('content-type') || '')) throw new Error('not an HTML page')
-  return readArticle((await res.text()).slice(0, 3_000_000), at)
+  return readArticle(await pageText(res), at)
 }
 
 /** Posts the day's entry on Bluesky, once: the question leads and the entry rides along as a link card. */

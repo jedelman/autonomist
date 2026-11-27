@@ -64,8 +64,10 @@ test('the email: the page’s own words, inline styles, a text part, one unsubsc
 })
 
 test('styleEmail keeps attributes, drops classes and ids, and mutes what the page mutes', () => {
-  assert.equal(styleEmail('<a href="https://x.example" rel="noopener">x</a>'), '<a href="https://x.example" rel="noopener" style="color:#1f5f8b;text-decoration:underline">x</a>')
-  assert.match(styleEmail('<p class="muted" id="a">m</p>'), /^<p style="margin:0 0 14px;color:#6b675e;font-size:14px">m<\/p>$/)
+  // the broadsheet's inks: links in ink, underlined in vermilion
+  assert.equal(styleEmail('<a href="https://x.example" rel="noopener">x</a>'), '<a href="https://x.example" rel="noopener" style="color:#261b16;text-decoration:underline;text-decoration-color:#d73d1f">x</a>')
+  assert.match(styleEmail('<p class="muted" id="a">m</p>'), /^<p style="margin:0 0 15px;color:#63554d;font-size:14px">m<\/p>$/)
+  assert.match(styleEmail('<p class="q">Who owns it?</p>'), /^<p style="margin:0 0 15px;font-family:Georgia[^"]*font-size:23px[^"]*">Who owns it\?<\/p>$/)
   assert.equal(styleEmail('<strong>b</strong>'), '<strong>b</strong>')
   assert.equal(plainText('## Head\n\n**b** and *i* and [l](https://u.example)'), 'HEAD\n\nb and i and l (https://u.example)')
 })
@@ -204,7 +206,8 @@ test('a published digest queues its record for the newsletter, once, with its at
 })
 
 async function queued(kv, day = '2026-11-25') {
-  await kv.put(queueKey(day), JSON.stringify({ slug: `${day}-rents`, url: 'u', uri: 'at://x', record: { ...RECORD, date: day } }))
+  // the 2026-11-27 title, whose broadcast name ran past Resend's 70 characters
+  await kv.put(queueKey(day), JSON.stringify({ slug: `${day}-rents`, url: 'u', uri: 'at://x', record: { ...RECORD, title: 'Who checks the official account when public systems step back', date: day } }))
 }
 
 test('sending: one broadcast per digest, as a draft first, sent only while it is still a draft, each key written once', async () => {
@@ -226,6 +229,8 @@ test('sending: one broadcast per digest, as a draft first, sent only while it is
   assert.equal(b.from, 'autonomist <digest@example.org>')
   assert.ok(b.html.includes(UNSUBSCRIBE) && b.text.includes(UNSUBSCRIBE))
   assert.ok(!('send' in b), 'created as a draft')
+  // Resend refuses a broadcast name over 70 characters (the 2026-11-27 first send failed on it)
+  assert.ok(b.name.length <= 70, b.name)
   assert.equal(await e.KV.get('newsletter:sent:2026-11-25-rents'), 'sent')
   // the queue's delete came too soon after its write (KV's limit) and is left for the next run, which finds it sent
   e.KV.clock.t += 60 * 60_000

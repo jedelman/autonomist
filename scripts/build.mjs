@@ -9,7 +9,7 @@
 //   content/model/*.md        technical papers; model/results.md is published as /model/results/
 //   content/case-studies/*.md case studies (each reviewed before it is added)
 //   content/journal/*.md      the news journal: commentary on what autonomist reads (checked by scripts/journal-check.mjs)
-//   site/css, site/js, site/favicon.svg, and model/lec-core.cjs (as /js/lec-core.js)
+//   site/css, site/js, site/fonts (OFL), site/email (the email's nameplate), site/favicon.svg, and model/lec-core.cjs (as /js/lec-core.js)
 // Also writes public/content-index.json, which the agent reads to cite what is published.
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync, copyFileSync, existsSync } from 'node:fs'
 import { join, dirname, relative } from 'node:path'
@@ -32,8 +32,12 @@ function frontMatter(src) {
   return { meta, body: src.slice(m[0].length) }
 }
 
+// The masthead's nameplate: the front page's h1, a link home everywhere else.
+const BRAND = { front: '<h1 class="brand">autonomist</h1>', other: '<a class="brand" href="/">autonomist</a>' }
+
 function page({ title, description = '', content, section = '', scripts = '', bodyClass = '', wide = false }) {
   let html = layout
+    .replace('{{brand}}', bodyClass.split(' ').includes('front') ? BRAND.front : BRAND.other)
     .replace('{{title}}', esc(title))
     .replace('{{description}}', esc(description))
     .replace('{{bodyClass}}', bodyClass)
@@ -67,6 +71,8 @@ rmSync(out, { recursive: true, force: true })
 mkdirSync(out, { recursive: true })
 copyDir(join(root, 'site/css'), join(out, 'css'))
 copyDir(join(root, 'site/js'), join(out, 'js'))
+copyDir(join(root, 'site/fonts'), join(out, 'fonts'))
+copyDir(join(root, 'site/email'), join(out, 'email'))
 copyFileSync(join(root, 'model/lec-core.cjs'), join(out, 'js/lec-core.js'))
 copyFileSync(join(root, 'site/favicon.svg'), join(out, 'favicon.svg'))
 
@@ -141,7 +147,7 @@ for (const file of walk(join(root, 'site/pages')).filter((p) => p.endsWith('.md'
   // a page's own scripts (external files only, under the strict CSP) go at the end of the body, as on the tool pages
   const scripts = (body.match(/<script[\s\S]*?<\/script>/g) || []).join('\n')
   body = body.replace(/<script[\s\S]*?<\/script>\s*/g, '')
-  write(target, page({ title: meta.title || 'autonomist', description: meta.description, content: md(body), scripts, section }))
+  write(target, page({ title: meta.title || 'autonomist', description: meta.description, content: md(body), scripts, section, bodyClass: meta.bodyClass || '', wide: meta.wide === 'true' }))
 }
 
 // chat, the saved-result shell, and 404

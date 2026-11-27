@@ -96,7 +96,7 @@ export function client(env, { pdsFetch, kv, fetch: f = fetch, now = () => Date.n
 
   /**
    * Publishes a post from autonomist's account. `links` in the text become clickable; `card` ({ uri, title,
-   * description }) attaches a link card instead, leaving the text's room for the words. `lang` tags the post with
+   * description, thumb? }) attaches a link card instead, leaving the text's room for the words. `lang` tags the post with
    * the language it's written in (English unless given). Nothing is ever an @mention.
    */
   async function post({ text, links = [], reply, card, quote, lang }) {
@@ -106,12 +106,21 @@ export function client(env, { pdsFetch, kv, fetch: f = fetch, now = () => Date.n
     // a quote-post embeds another post by reference; otherwise a link card, if any
     const embed = quote?.uri && quote?.cid
       ? { $type: 'app.bsky.embed.record', record: { uri: quote.uri, cid: quote.cid } }
-      : card?.uri ? { $type: 'app.bsky.embed.external', external: { uri: card.uri, title: String(card.title || '').slice(0, 300), description: String(card.description || '').slice(0, 1000) } } : null
+      : card?.uri ? { $type: 'app.bsky.embed.external', external: { uri: card.uri, title: String(card.title || '').slice(0, 300), description: String(card.description || '').slice(0, 1000), ...(card.thumb?.ref ? { thumb: card.thumb } : {}) } } : null
     const record = { $type: 'app.bsky.feed.post', text, createdAt: new Date(now()).toISOString(), langs: [cleanLang(lang)], ...(facets.length ? { facets } : {}), ...(reply ? { reply } : {}), ...(embed ? { embed } : {}) }
     return call('POST', 'com.atproto.repo.createRecord', { body: { repo: s.did, collection: 'app.bsky.feed.post', record } })
   }
 
-  return { raw, session, call, pub, post }
+  /** Stores bytes as a blob in autonomist's repository; returns the blob ref a record can carry. */
+  async function uploadBlob(bytes, mimeType) {
+    const s = await session()
+    const res = await pdsFetch(new Request(new URL('/xrpc/com.atproto.repo.uploadBlob', base), { method: 'POST', headers: { 'content-type': mimeType, authorization: `Bearer ${s.accessJwt}` }, body: bytes }))
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || !data?.blob?.ref) throw new Error(`com.atproto.repo.uploadBlob ${res.status}: ${data?.error || ''}`.trim())
+    return data.blob
+  }
+
+  return { raw, session, call, pub, post, uploadBlob }
 }
 
 /** A language tag for a post: a plain BCP-47 code ("en", "ja", "pt-BR"), or English. */

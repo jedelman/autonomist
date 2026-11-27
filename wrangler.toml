@@ -67,6 +67,8 @@ BOT_SOURCE_ACTOR = "jason-edelman.org"
 BOT_JOURNAL_HOUR_UTC = "13"
 BOT_DIGEST_STORIES = "8"
 BOT_DIGEST_ARTICLES = "40"
+# each of the top stories gets its publisher's preview image, stored in autonomist's repository (bot/images.js); 0 turns it off
+BOT_DIGEST_IMAGES = "6"
 BOT_DIGEST_PER_STORY = "6"
 # Scheduled pipelines that run dry until taken out of this list (dry.js; Jason, 2026-11-25: "produce the artifacts a
 # real run would produce but as test artifacts, never posted"). "digest": the day's digest and its two feed questions

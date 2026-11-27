@@ -121,6 +121,29 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     rather than writing another. It works to a deadline inside the cron's fifteen minutes (no second synthesis or
     fact-checks when time is short), and the hourly steps after it don't start late. Fact-checks never count the
     outlets it read, nor do fact-checks in replies under its post (`journal:root` carries `sources`).
+  - **What the digest shows, and its analysis** (Jason, 2026-11-27: "pretty up the digest a bit - have autonomist fetch
+    image previews, play with typesetting, and otherwise give different visual channels to communicate what they're
+    seeing", and "I'd love to have autonomist contribute some kind of analysis within the synthesis step"; his picks: images
+    kept in its own repository, a power map, threads over time). Drawn by code from the record (`worker/digest-html.js`),
+    for the page and, inline-styled, the email.
+    - **Images** (`bot/images.js`): each of the top `BOT_DIGEST_IMAGES` stories gets the preview image its publisher offers
+      for link cards (og:image or twitter:image, https only), fetched through `fetchReadable` (robots.txt and
+      Content-Signal on every hop), JPEG, PNG or WebP by its bytes (`sniffImage`, never the Content-Type), at most
+      `MAX_IMAGE_BYTES`. It's uploaded as a blob to autonomist's repository and carried on the story (`image`: blob, alt,
+      outlet, article, from), as a Bluesky link card carries a thumbnail; the digest's own card gets the lead image. The
+      site serves blobs at `/journal/img/<cid>` (main.js), image types only, so the CSP stays `img-src 'self' data:` and no
+      reader's browser calls a publisher. Credited to the outlet; a publisher's request takes it down.
+    - **The power map** (`bot/analysis.js`): written in the synthesis call (`power_map`, `POWER_MAP_RULES`): per thread, who
+      holds the power (institutions the articles name, never a private person), what's at stake, who bears the cost, and
+      a direction (toward enclosure, contested, toward the commons). `checkPowerMap` keeps a row only if each passage it
+      cites is word for word in the article it tags, and its fields hold no quotation marks, links, handles or figures the
+      articles don't; fewer than two rows means no map. It never holds a digest back. Stored as `analysis.powerMap`.
+    - **Threads over time:** the clustering call tags each story with one of `THEMES`; `computeTrend` counts, by code, the
+      people who shared stories on each theme for each of the last 30 days, from the earlier digests in its repository and
+      today's (`network.trend`). A day with no themed digest is a gap, never a zero.
+    - **Typesetting:** the lead image, a drop cap, the pull quote (`pickPull`: the longest passage the digest quotes from
+      an article, 8 to 30 words, chosen by code), one square per person who shared a story, "What we don't know" as a
+      notice and the question set large.
   - **The day's question on the site** (Jason, 2026-11-25: "how cool would it be to have the daily question on the site
     and linked to the bluesky post for discussion?"). When `announce` posts an entry's question, it writes the post's
     link for the entry (`journal:post:<slug>`, kept) and the latest question (`site:question`). The front page fills
@@ -324,7 +347,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   the script), `journal-pages.js` (pages for entries in its repository), `thinking-pages.js` (the run journal and memory
   at `/thinking/`, and that page's CSP), `checks-html.js` (fact-checks on both pages), `bot/` (autonomist on Bluesky; `digest.js` the daily digest, `voice.js` who it is, `wiki.js` the shared wiki), `newsletter.js` (the digest by
   email, through Resend).
-- `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers, case
+- `site/` the layout, pages (markdown), tool pages and scripts, chat, and `fonts/` (OFL); the design context, an organizer's
+  broadsheet (set 2026-11-27), is `.impeccable.md`. `content/` papers, case
   studies and the journal; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on
   deploy); `scripts/invites.mjs` the steward's CLI; `scripts/birth.mjs` gives an agent its account on its own PDS
   (autonomist's by default; `--handle` and `--pds` for another agent, `--dry-run` to only build the

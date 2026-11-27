@@ -81,6 +81,18 @@ export function dryApi(api, captured) {
       captured.posts.push({ text: p.text, card: p.card || null, quote: p.quote || null, reply: p.reply || null, lang: p.lang || 'en' })
       return fake('app.bsky.feed.post')
     },
+    // an image a real run would store: kept in the artifact as a data URI under a stand-in CID, never uploaded
+    async uploadBlob(bytes, mimeType) {
+      // a stand-in CID in base32's alphabet (no 0, 1, 8 or 9), so the pages' CID check accepts it
+      const cid = `bafkreidry${String(++n).padStart(4, '0').replace(/\d/g, (d) => 'abcdefghij'[d])}${'a'.repeat(40)}`
+      // the artifact lives in KV (25 MB a value), with each image in a page and in the email: past 3 MB, refs only
+      captured.imageBytes = (captured.imageBytes || 0) + bytes.length
+      if (captured.imageBytes > 3_000_000) return { $type: 'blob', ref: { $link: cid }, mimeType, size: bytes.length }
+      let bin = ''
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+      ;(captured.images ||= {})[cid] = `data:${mimeType};base64,${btoa(bin)}`
+      return { $type: 'blob', ref: { $link: cid }, mimeType, size: bytes.length }
+    },
   }
 }
 
@@ -125,14 +137,16 @@ export async function runDry({ env, kv, api, model, what = 'digest,questions', n
   if (wants.has('notes')) await step('notes', () => runAcquaint({ env, kv: dkv, api: dapi, model, now: now.getTime() + 8 * 86400_000, fetch: f }))
   const origin = (env.PUBLIC_ORIGIN || 'https://autonomist.jason-edelman.org').replace(/\/$/, '')
   const pages = {}
+  // images the run would have stored, shown from the artifact itself
+  const drySrc = (cid) => captured.images?.[cid] || null
   for (const w of captured.writes) {
     if (w.collection !== COLLECTION || !w.record) continue
-    const content = entryHtml(w.record, { uri: `at://dry/${COLLECTION}/${w.rkey}`, origin })
+    const content = entryHtml(w.record, { uri: `at://dry/${COLLECTION}/${w.rkey}`, origin, src: drySrc })
     pages[w.rkey] = shell ? fillShell(shell, { title: `[dry run] ${w.record.title} · autonomist`, description: w.record.summary || '', content: `<p class="note">A dry run: nothing here was published or posted.</p>\n${content}` }) : content
   }
   // the email subscribers would have got: built from the queue the digest left in the scratch layer, never sent
   const queued = dkv.over.get(queueKey(day))
-  const email = queued?.v ? (({ slug, uri, record }) => digestEmail({ ...record, slug }, { origin, uri }))(JSON.parse(queued.v)) : null
+  const email = queued?.v ? (({ slug, uri, record }) => digestEmail({ ...record, slug }, { origin, uri, src: drySrc }))(JSON.parse(queued.v)) : null
   const digest = dkv.over.get(`digest:day:${day}`)
   const notes = digest?.v ? JSON.parse(digest.v).stories.map((s) => ({ label: s.label, sharers: s.sharers, articles: s.articles.map((a) => ({ url: a.url, title: a.title, outlet: a.outlet, gist: a.gist, quotes: a.quotes })) })) : null
   const artifact = {

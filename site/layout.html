@@ -5,14 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{title}}</title>
 <meta name="description" content="{{description}}">
+<link rel="preload" href="/fonts/big-shoulders-display-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/besley-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/css/site.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 </head>
 <body class="{{bodyClass}}">
 <div class="band"><span>A public-interest project. Not a company, and it sells nothing.</span> <a href="/about/">What that means</a></div>
 <header class="site">
-  <a class="brand" href="/">autonomist</a>
-  <nav>
+  {{brand}}
+  <nav aria-label="Sections">
     <a href="/chat/"{{nav:chat}}>Chat</a>
     <a href="/journal/"{{nav:journal}}>Journal</a>
     <a href="/thinking/"{{nav:thinking}}>Thinking</a>

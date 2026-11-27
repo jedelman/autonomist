@@ -324,7 +324,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   the script), `journal-pages.js` (pages for entries in its repository), `thinking-pages.js` (the run journal and memory
   at `/thinking/`, and that page's CSP), `checks-html.js` (fact-checks on both pages), `bot/` (autonomist on Bluesky; `digest.js` the daily digest, `voice.js` who it is, `wiki.js` the shared wiki), `newsletter.js` (the digest by
   email, through Resend).
-- `site/` the layout, pages (markdown), tool pages and scripts, chat; `content/` papers, case
+- `site/` the layout, pages (markdown), tool pages and scripts, chat, and `fonts/` (OFL); the design context, an organizer's
+  broadsheet (set 2026-11-27), is `.impeccable.md`. `content/` papers, case
   studies and the journal; `scripts/build.mjs` renders it all into `public/` (git-ignored; wrangler builds it on
   deploy); `scripts/invites.mjs` the steward's CLI; `scripts/birth.mjs` gives an agent its account on its own PDS
   (autonomist's by default; `--handle` and `--pds` for another agent, `--dry-run` to only build the

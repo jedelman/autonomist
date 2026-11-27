@@ -295,47 +295,62 @@ export const queueKey = (day) => `newsletter:queue:${day}`
  * without the newsletter's config. One try an hour (which also keeps two overlapping runs from each sending), four in
  * all. Each step has its own key, written once: a try (`newsletter:try:<slug>:<hour>`), the draft's id
  * (`newsletter:draft:<slug>`), and the send (`newsletter:sent:<slug>`).
+ *
+ * The newest queued digest is the one that goes. An older one still waiting is dropped: an issue that arrives a day
+ * late, after the next one, tells subscribers nothing the newer one doesn't (2026-11-27, when switching the newsletter
+ * on found two digests queued).
  */
 export async function sendNewsletter({ env, kv, now = new Date(), fetch: f = fetch }) {
   if (!newsletterReady(env)) return { skipped: 'not configured' }
   const days = [0, 1].map((d) => new Date(now.getTime() - d * 86400_000).toISOString().slice(0, 10))
+  const queued = []
   for (const day of days) {
     const q = await kv.get(queueKey(day), 'json')
-    if (!q?.record) continue
-    const slug = q.slug
-    const sentKey = `newsletter:sent:${slug}`, draftKey = `newsletter:draft:${slug}`, tries = `newsletter:try:${slug}:`
-    const already = await kv.get(sentKey)
-    if (already) { await kv.delete(queueKey(day)).catch(() => {}); return { already, slug } }
-    const thisHour = `${tries}${now.toISOString().slice(0, 13)}`
-    if (await kv.get(thisHour)) return { skipped: 'tried this hour', slug }
-    const tried = await count(kv, tries, 10)
-    if (tried >= 4) return { gaveUp: slug, tries: tried }
-    await kv.put(thisHour, '1', { expirationTtl: 7 * 86400 })
-    let id = await kv.get(draftKey)
-    if (!id) {
-      // the digest's post is usually up by now (announced in the same run, before this step)
-      const mail = digestEmail({ ...q.record, slug }, { origin: originOf(env), uri: q.uri, post: await kv.get(postKey(slug)) })
-      const r = await resend(env, 'POST', '/broadcasts', { segment_id: env.RESEND_SEGMENT_ID, from: env.NEWSLETTER_FROM, name: `Digest ${q.record.date}: ${mail.subject}`.slice(0, 200), ...mail }, { fetch: f })
-      if (!r.ok || !r.data?.id) throw fail('create', r)
-      id = r.data.id
-      await kv.put(draftKey, id, { expirationTtl: 7 * 86400 })
-    }
-    // a send that went through before a run was cut short leaves the broadcast queued or sent: never send it again
-    const g = await resend(env, 'GET', `/broadcasts/${encodeURIComponent(id)}`, undefined, { fetch: f })
-    if (!g.ok) throw fail('status', g)
-    let status = g.data?.status
-    if (!status || status === 'draft') {
-      const s = await resend(env, 'POST', `/broadcasts/${encodeURIComponent(id)}/send`, {}, { fetch: f })
-      if (!s.ok) throw fail('send', s)
-      status = 'sent'
-    }
-    await kv.put(sentKey, status, { expirationTtl: 30 * 86400 })
-    // the queue may have been written moments ago in this same run (KV's one write a second): the sent mark already
-    // keeps the digest from going twice, so a failed delete is left to the next run
-    await kv.delete(queueKey(day)).catch(() => {})
-    return { sent: id, slug, status }
+    if (q?.record) queued.push({ day, q })
   }
-  return { none: true }
+  if (!queued.length) return { none: true }
+  const superseded = []
+  for (const { day, q } of queued.slice(1)) {
+    await kv.delete(queueKey(day)).catch(() => {})
+    superseded.push(q.slug)
+  }
+  const r = await sendQueued({ env, kv, now, f, ...queued[0] })
+  return superseded.length ? { ...r, superseded } : r
+}
+
+async function sendQueued({ env, kv, now, f, day, q }) {
+  const slug = q.slug
+  const sentKey = `newsletter:sent:${slug}`, draftKey = `newsletter:draft:${slug}`, tries = `newsletter:try:${slug}:`
+  const already = await kv.get(sentKey)
+  if (already) { await kv.delete(queueKey(day)).catch(() => {}); return { already, slug } }
+  const thisHour = `${tries}${now.toISOString().slice(0, 13)}`
+  if (await kv.get(thisHour)) return { skipped: 'tried this hour', slug }
+  const tried = await count(kv, tries, 10)
+  if (tried >= 4) return { gaveUp: slug, tries: tried }
+  await kv.put(thisHour, '1', { expirationTtl: 7 * 86400 })
+  let id = await kv.get(draftKey)
+  if (!id) {
+    // the digest's post is usually up by now (announced in the same run, before this step)
+    const mail = digestEmail({ ...q.record, slug }, { origin: originOf(env), uri: q.uri, post: await kv.get(postKey(slug)) })
+    const r = await resend(env, 'POST', '/broadcasts', { segment_id: env.RESEND_SEGMENT_ID, from: env.NEWSLETTER_FROM, name: `Digest ${q.record.date}: ${mail.subject}`.slice(0, 200), ...mail }, { fetch: f })
+    if (!r.ok || !r.data?.id) throw fail('create', r)
+    id = r.data.id
+    await kv.put(draftKey, id, { expirationTtl: 7 * 86400 })
+  }
+  // a send that went through before a run was cut short leaves the broadcast queued or sent: never send it again
+  const g = await resend(env, 'GET', `/broadcasts/${encodeURIComponent(id)}`, undefined, { fetch: f })
+  if (!g.ok) throw fail('status', g)
+  let status = g.data?.status
+  if (!status || status === 'draft') {
+    const s = await resend(env, 'POST', `/broadcasts/${encodeURIComponent(id)}/send`, {}, { fetch: f })
+    if (!s.ok) throw fail('send', s)
+    status = 'sent'
+  }
+  await kv.put(sentKey, status, { expirationTtl: 30 * 86400 })
+  // the queue may have been written moments ago in this same run (KV's one write a second): the sent mark already
+  // keeps the digest from going twice, so a failed delete is left to the next run
+  await kv.delete(queueKey(day)).catch(() => {})
+  return { sent: id, slug, status }
 }
 
 /** A dry run's email, sent to the steward alone (the steward's page): a preview, never the list. */

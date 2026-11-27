@@ -260,6 +260,28 @@ test('sending: a run cut short after the send never sends again; one try an hour
   assert.equal(bad.calls.length, 4)
 })
 
+test('sending: the newest queued digest goes, and an older one still waiting is dropped, never sent after it', async () => {
+  // 2026-11-27: switching the newsletter on found yesterday's digest and today's both queued
+  const e = env()
+  await queued(e.KV, '2026-11-26')
+  await queued(e.KV, '2026-11-27')
+  e.KV.clock.t += 60_000
+  const { f, calls } = fakeResend({ 'POST /broadcasts': [201, { id: 'b-27' }], 'GET /broadcasts/b-27': [200, { id: 'b-27', status: 'draft' }], 'POST /broadcasts/b-27/send': [200, { id: 'b-27' }] })
+  const r = await sendNewsletter({ env: e, kv: e.KV, now: new Date('2026-11-27T20:07:00Z'), fetch: f })
+  assert.deepEqual(r, { sent: 'b-27', slug: '2026-11-27-rents', status: 'sent', superseded: ['2026-11-26-rents'] })
+  assert.equal(calls[0].body.name.startsWith('Digest 2026-11-27'), true)
+  assert.equal(await e.KV.get(queueKey('2026-11-26')), null)
+  // the hours after: today's is found sent, and yesterday's never goes
+  for (const h of [21, 22, 23]) {
+    e.KV.clock.t += 60 * 60_000
+    const later = fakeResend()
+    const x = await sendNewsletter({ env: e, kv: e.KV, now: new Date(`2026-11-27T${h}:07:00Z`), fetch: later.f })
+    assert.ok(x.already || x.none, JSON.stringify(x))
+    assert.equal(later.calls.length, 0)
+  }
+  assert.equal(await e.KV.get('newsletter:sent:2026-11-26-rents'), null)
+})
+
 test('a dry run’s email goes to the steward alone, with a plain link where the unsubscribe placeholder was', async () => {
   const mail = digestEmail({ ...RECORD, slug: 's' }, { origin: 'https://autonomist.test' })
   const { f, calls } = fakeResend({ 'POST /emails': [200, { id: 'em' }] })

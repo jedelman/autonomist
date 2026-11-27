@@ -286,7 +286,8 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
   - **One broadcast per published digest.** `finishPublish` queues the record (`newsletter:queue:<day>`) before it
     marks the day done. The hourly `newsletter` step creates a draft, keeps its id, reads its status, and sends it only
     while it's still a draft, so a run cut short never sends twice (Resend's idempotency keys don't cover broadcasts).
-    One try an hour (which also keeps overlapping runs from each sending), four in all.
+    One try an hour (which also keeps overlapping runs from each sending), four in all. The newest queued digest is the
+    one that goes; an older one still waiting is dropped, never sent a day late after it.
   - **Workers KV takes one write a second per key, and the second throws.** So nothing here writes a key twice in a
     request or a run: counters are a key per event, counted by listing, and each step of a send has its own key
     (`newsletter:try:<slug>:<hour>`, `newsletter:draft:<slug>`, `newsletter:sent:<slug>`). The tests' `strictKV`

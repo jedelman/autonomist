@@ -293,7 +293,12 @@ function digestMessage({ block, stories, articles, used }) {
  */
 export async function runDigest({ env, kv, api, model, day, fetch: f = fetch, now = Date.now(), deadline = Date.now() + 11 * 60_000 }) {
   const done = await kv.get(`journal:done:${day}`)
-  if (done) return { ...(await announce({ kv, api, day })), published: done }
+  if (done) {
+    // finishPublish deletes the pending record moments after writing it, which KV refuses (one write a second per key),
+    // so it's cleared here, on a later run, once the day is done
+    if (await kv.get(`journal:pending:${day}`)) await kv.delete(`journal:pending:${day}`).catch(() => {})
+    return { ...(await announce({ kv, api, day })), published: done }
+  }
   // a run killed between storing the record and marking the day done left its record here: store that same record
   // (the same key, so nothing is doubled) and finish, rather than writing a second digest
   const pending = await kv.get(`journal:pending:${day}`, 'json')

@@ -4,6 +4,7 @@
 // links only to the entry's own sources, this site and Power Explained.
 import { render, esc } from '../site/js/md.js'
 import { checksHtml } from './checks-html.js'
+import { leadHtml, unitsHtml, trendHtml, powerMapHtml, pullHtml, assemble, imageSrc, longDate } from './digest-html.js'
 
 export const COLLECTION = 'org.jason-edelman.autonomist.journal'
 const PE = 'https://power-explained.jason-edelman.org'
@@ -40,19 +41,27 @@ export function questionHtml(q) {
 </section>`
 }
 
-/** What the network shared, written by code from the digest's record: each story, how many shared it, what was read. */
-export function networkHtml(net) {
+/**
+ * What the network shared, written by code from the digest's record: each story, how many shared it (one square a
+ * person), its theme and image, what was read. `images` false leaves the story images out (the email).
+ */
+export function networkHtml(net, { origin = '', src, images = true, units = true } = {}) {
   if (!net?.stories?.length) return ''
   const num = (x) => Number(x || 0).toLocaleString('en-US')
-  const stories = net.stories.map((st) => `<li><p><strong>${esc(st.label)}</strong> <span class="muted">· shared by ${num(st.sharers)} ${Number(st.sharers) === 1 ? 'person' : 'people'}</span></p><ul>${(st.articles || []).filter((a) => /^https?:\/\//.test(a.url || '')).map((a) => `<li><a href="${esc(a.url)}">${esc(a.title || a.url)}</a>${a.outlet ? ` <span class="muted">(${esc(a.outlet)})</span>` : ''}</li>`).join('')}</ul></li>`).join('')
-  return `<h2>What the network shared</h2>
-<p class="muted">In the day before this digest, ${num(net.accounts)} accounts that Jason Edelman follows on Bluesky shared ${num(net.links)} links. autonomist grouped them into stories and read ${num(net.read)} articles from the most-shared, each only where its publisher allows it${net.closed ? ` (${num(net.closed)} more were closed to it or unreadable)` : ''}. Who shared what is never published.</p>
+  const stories = net.stories.map((st) => {
+    const img = images ? imageSrc(st.image?.blob, { origin, src }) : null
+    const thumb = img ? `<img class="thumb" src="${esc(img)}" alt="" loading="lazy" decoding="async" width="104" height="78">` : ''
+    const theme = st.theme && st.theme !== 'other' ? ` <span class="theme">${esc(st.theme)}</span>` : ''
+    return `<li${thumb ? ' class="has-thumb"' : ''}>${thumb}<p><strong>${esc(st.label)}</strong>${theme} <span class="muted">· shared by ${num(st.sharers)} ${Number(st.sharers) === 1 ? 'person' : 'people'}</span>${units ? unitsHtml(st.sharers) : ''}</p><ul>${(st.articles || []).filter((a) => /^https?:\/\//.test(a.url || '')).map((a) => `<li><a href="${esc(a.url)}">${esc(a.title || a.url)}</a>${a.outlet ? ` <span class="muted">(${esc(a.outlet)})</span>` : ''}</li>`).join('')}</ul></li>`
+  }).join('')
+  return `<h2 id="what-the-network-shared">What the network shared</h2>
+<p class="muted">In the day before this digest, ${num(net.accounts)} accounts that Jason Edelman follows on Bluesky shared ${num(net.links)} links. autonomist grouped them into stories and read ${num(net.read)} articles from the most-shared, each only where its publisher allows it${net.closed ? ` (${num(net.closed)} more were closed to it or unreadable)` : ''}. Who shared what is never published.${net.stories.some((st) => st.image) && images ? ' Each image is the one its publisher offers for link cards.' : ''}</p>
 <ul class="network">${stories}</ul>
 `
 }
 
-export function entryHtml(rec, { uri, origin, post }) {
-  if (rec.kind === 'digest') return digestHtml(rec, { uri, origin, post })
+export function entryHtml(rec, { uri, origin, post, src }) {
+  if (rec.kind === 'digest') return digestHtml(rec, { uri, origin, post, src })
   const sources = Array.isArray(rec.sources) ? rec.sources.map(String) : []
   // relative links only as plain paths ("/\\host" would leave the site), else the entry's own sources and the two sites
   const allowLink = (u) => /^\/[A-Za-z0-9._~\/-]*$/.test(u) || sources.includes(u) || u.startsWith(`${PE}/`) || (origin && u.startsWith(`${origin}/`))
@@ -83,17 +92,24 @@ ${before}${html}
 ` : ''
 }
 
-function digestHtml(rec, { uri, origin, post }) {
+function digestHtml(rec, { uri, origin, post, src }) {
   const sources = Array.isArray(rec.sources) ? rec.sources.map(String) : []
   const allowLink = (u) => /^\/[A-Za-z0-9._~\/-]*$/.test(u) || sources.includes(u) || u.startsWith(`${PE}/`) || (origin && u.startsWith(`${origin}/`))
   const clean = (x) => String(x || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
   const net = rec.network || {}
   const num = (x) => Number(x || 0).toLocaleString('en-US')
-  return `<h1>${esc(rec.title)}</h1>
-<p class="byline">autonomist's digest · ${esc(rec.date)} · from ${num(net.read)} article${Number(net.read) === 1 ? '' : 's'} across ${num((net.stories || []).length)} ${(net.stories || []).length === 1 ? 'story' : 'stories'}</p>
-${render(clean(rec.body), { allowLink })}
-${discussHtml(post)}${networkHtml(net)}${checkedHtml(rec.checks?.claims, rec.checks, { digest: true })}<p><a href="/newsletter/">Get the digest by email</a>, once a day.</p>
-<p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the ${num(net.read)} articles it read, the Power Explained pages it cites, and its own counts (${Number(rec.checks?.quotes || 0)} quotations from ${Number(rec.checks?.articlesQuoted || 0)} articles, ${Number(rec.checks?.figures || 0)} figures). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>`
+  const stories = net.stories || []
+  // the image route is the site's own, relative on the page
+  const lead = leadHtml(stories.find((st) => st.image), { src })
+  const body = assemble(render(clean(rec.body), { allowLink }), { trend: trendHtml(net.trend), pull: pullHtml(rec.pull), powerMap: powerMapHtml(rec.analysis?.powerMap) })
+  return `<article class="digest">
+<p class="kicker">The daily digest · ${esc(longDate(rec.date))}</p>
+<h1>${esc(rec.title)}</h1>
+${rec.summary ? `<p class="dek">${esc(clean(rec.summary))}</p>\n` : ''}<p class="byline">By autonomist, an AI · from ${num(net.read)} article${Number(net.read) === 1 ? '' : 's'} across ${num(stories.length)} ${stories.length === 1 ? 'story' : 'stories'}</p>
+${lead}${body}
+${discussHtml(post)}${networkHtml(net, { src })}${checkedHtml(rec.checks?.claims, rec.checks, { digest: true })}<p><a href="/newsletter/">Get the digest by email</a>, once a day.</p>
+<p class="muted"><em>Written by autonomist (${esc(rec.model || 'Claude Haiku 5.5')}), an AI, on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the ${num(net.read)} articles it read, the Power Explained pages it cites, and its own counts (${Number(rec.checks?.quotes || 0)} quotations from ${Number(rec.checks?.articlesQuoted || 0)} articles, ${Number(rec.checks?.figures || 0)} figures${rec.analysis?.powerMap?.length ? `, and every passage in the power map` : ''}). It's stored as a record in autonomist's own repository: <code>${esc(uri)}</code>.</em></p>
+</article>`
 }
 
 export function fillShell(shell, { title, description, content }) {

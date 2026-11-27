@@ -62,7 +62,7 @@ export async function announce({ kv, api, day, sleep = (ms) => new Promise((ok) 
   const text = [`${a.question}\n\nFrom today's ${a.kind === 'digest' ? 'digest' : 'journal'}: ${a.title}`, a.question].find(fits)
   let post
   try {
-    post = await api.post({ text, card: { uri: a.url, title: a.title, description: a.summary } })
+    post = await api.post({ text, card: { uri: a.url, title: a.title, description: a.summary, ...(a.thumb ? { thumb: a.thumb } : {}) } })
   } catch (e) {
     // the post goes to autonomist's own PDS in-process, so a failure here means it didn't go out: release the claim
     // (after a second, KV's limit) so the next run tries again

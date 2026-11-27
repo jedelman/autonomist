@@ -17,6 +17,7 @@
 // - Unsubscribing is Resend's: every digest carries its unsubscribe link ({{{RESEND_UNSUBSCRIBE_URL}}}).
 import { esc, render } from '../site/js/md.js'
 import { networkHtml, checkedHtml, postKey, postUrl } from './journal-pages.js'
+import { INK, leadEmail, trendEmail, powerMapEmail, pullEmail, assemble, longDate } from './digest-html.js'
 import { normalizeEmail, sha256hex } from './invites.js'
 import { setting } from './limits.js'
 
@@ -48,7 +49,6 @@ const fail = (what, r) => new Error(`${what}: Resend ${r.status}${r.data?.name ?
 // The look is the site's broadsheet (.impeccable.md): ink on newsprint, vermilion for what to act on. No web fonts
 // (Gmail and most clients ignore them): the nameplate is an image from the site, set in the site's face, and the text
 // falls back to faces mail clients have. The site keeps no request logs, so nothing it serves counts who opens one.
-export const INK = { paper: '#f9f3ea', sheet: '#fdfaf4', ink: '#261b16', ink2: '#41352f', muted: '#63554d', line: '#d5c8bc', spot: '#d73d1f', spotText: '#b82b19', wash: '#fdd4c6' }
 const FONT = "Georgia, 'Times New Roman', serif"
 const DISPLAY = "'Big Shoulders', 'Arial Narrow', 'Roboto Condensed', 'Helvetica Neue', Arial, sans-serif"
 const LABEL = `font-family:${DISPLAY};font-weight:700;font-size:13px;line-height:1.2;letter-spacing:1.6px;text-transform:uppercase;color:${INK.spotText}`
@@ -72,9 +72,12 @@ const CLASS = {
   kicker: `${LABEL};margin:0 0 6px`,
   q: `font-family:${FONT};font-weight:700;font-size:23px;line-height:1.3;color:${INK.ink}`,
   discuss: `font-weight:700`,
+  theme: `font-family:${DISPLAY};font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:${INK.muted}`,
 }
 export function styleEmail(html) {
-  return String(html).replace(/<(h1|h2|h3|p|ul|ol|li|blockquote|a|code|pre|span|em)\b([^>]*)>/g, (_, tag, attrs) => {
+  return String(html).replace(/<(h1|h2|h3|p|ul|ol|li|blockquote|a|code|pre|span|em)\b([^>]*)>/g, (whole, tag, attrs) => {
+    // parts drawn for email already (digest-html.js) keep their own styles
+    if (/\sstyle="/.test(attrs)) return whole
     const classes = (attrs.match(/\sclass="([^"]*)"/)?.[1] || '').split(/\s+/).filter((c) => CLASS[c])
     const rest = attrs.replace(/\s(class|id)="[^"]*"/g, '')
     const style = [STYLE[tag], ...classes.map((c) => CLASS[c])].filter(Boolean).join(';')
@@ -108,7 +111,7 @@ export function plainText(md) {
  * The digest as an email: { subject, html, text }. `unsubscribe` is the unsubscribe link (Resend's placeholder in a
  * broadcast; a plain page in a preview). The body is the record's own text, rendered as the page renders it.
  */
-export function digestEmail(rec, { origin = ORIGIN, uri = '', post = null, unsubscribe = UNSUBSCRIBE } = {}) {
+export function digestEmail(rec, { origin = ORIGIN, uri = '', post = null, unsubscribe = UNSUBSCRIBE, src } = {}) {
   const thread = postUrl(post)
   const url = `${origin}/journal/${rec.slug || ''}/`.replace(/\/\/$/, '/')
   // the unsubscribe link goes in last, in place of a marker no article or model can guess, so a "{{{...}}}" in the
@@ -118,19 +121,21 @@ export function digestEmail(rec, { origin = ORIGIN, uri = '', post = null, unsub
   const allowLink = (u) => sources.includes(u) || u.startsWith(`${PE}/`) || u.startsWith(`${origin}/`)
   const net = rec.network || {}
   const stories = (net.stories || []).length
-  const byline = `The daily digest · ${esc(rec.date)} · from ${num(net.read)} article${Number(net.read) === 1 ? '' : 's'} across ${num(stories)} ${stories === 1 ? 'story' : 'stories'}`
+  const byline = `The daily digest · ${esc(longDate(rec.date))} · from ${num(net.read)} article${Number(net.read) === 1 ? '' : 's'} across ${num(stories)} ${stories === 1 ? 'story' : 'stories'}`
   const body = render(clean(rec.body), { allowLink, headingIds: false })
   const checked = checkedHtml(rec.checks?.claims, rec.checks, { digest: true })
   const footer = `<p class="muted">Written by autonomist, an AI (Claude, by Anthropic), on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the articles it read, the Power Explained pages it cites, and its own counts. It's also on the web, with everything above: <a href="${esc(url)}">${esc(url)}</a>${uri ? `, and stored in autonomist's own atproto repository as <code>${esc(uri)}</code>` : ''}.</p>
 <p class="muted">${thread ? `To talk it over, <a href="${esc(thread)}">reply under autonomist's post of its question</a> on Bluesky` : `To talk about it, reply to autonomist on Bluesky (<a href="https://bsky.app/profile/autonomist.jason-edelman.org">@autonomist.jason-edelman.org</a>)`}, where its conversations are public.</p>
 <p class="muted">autonomist is a public-interest project of Jason Edelman. It sells nothing. Nothing here is investment, financial, legal or tax advice, or an offer of securities; autonomist holds no money and signs nothing for anyone.</p>
 <p class="muted">You're getting this because you signed up at <a href="${esc(origin)}/newsletter/">${esc(origin.replace(/^https?:\/\//, ''))}/newsletter/</a> and confirmed. <a href="${mark}">Unsubscribe</a> at any time, in one click.</p>`
-  // the day's question, set large like the site's
-  const bodyHtml = body.replace(/(<h2>A question to take to your neighbors<\/h2>\s*)<p>/, '$1<p class="q">')
+  // the day's question, set large like the site's; the analysis and the pull quote in their places
+  const parts = { trend: trendEmail(net.trend), pull: pullEmail(rec.pull), powerMap: powerMapEmail(rec.analysis?.powerMap) }
+  const bodyHtml = assemble(body, parts, (id, text) => `<h2>${text}</h2>`).replace(/(<h2>A question to take to your neighbors<\/h2>\s*)<p>/, '$1<p class="q">')
+  const lead = leadEmail((net.stories || []).find((st) => st.image), { origin, src })
   const inner = styleEmail(`<p class="kicker">${byline}</p>
 <h1>${esc(rec.title)}</h1>
-${bodyHtml}
-${networkHtml(net)}${checked}<hr>
+${lead}${bodyHtml}
+${networkHtml(net, { images: false, units: false })}${checked}<hr>
 ${footer}`).replace(/<hr>/g, `<hr style="border:0;border-top:3px double ${INK.ink};margin:32px 0 18px">`)
   const html = noTags(`<!doctype html>
 <html lang="en">

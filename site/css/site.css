@@ -290,6 +290,79 @@ body.chat main { max-width: calc(52rem + 2 * var(--gutter)); display: flex; flex
 .memory p.muted { font-size: .875rem; margin: .4rem 0 .6rem; }
 #memory-text { white-space: pre-wrap; font-size: .9375rem; }
 
+/* ---------- the digest: a broadsheet's front page for the day ---------- */
+.digest > .kicker { margin-bottom: var(--space-2xs); }
+.digest > h1 { font-size: clamp(2.5rem, 1.5rem + 4vw, 4.5rem); line-height: .94; margin-bottom: var(--space-sm); }
+.digest .dek { font-size: var(--step-1); line-height: 1.4; color: var(--ink-2); margin: 0 0 var(--space-xs); max-width: 40ch; }
+.digest > .byline { margin: 0 0 var(--space-md); padding-bottom: var(--space-xs); border-bottom: 3px double var(--rule); }
+/* section heads: a rule and a label, as a paper sets them */
+.digest h2 { font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: .09em; font-size: .9375rem; line-height: 1.2; color: var(--spot-text); margin: var(--space-xl) 0 var(--space-sm); padding-top: var(--space-xs); border-top: 1px solid var(--rule); }
+.digest h2#the-common-threads + p::first-letter { float: left; font-family: var(--display); font-weight: 800; font-size: 4.6em; line-height: .78; margin: .06em .08em 0 0; color: var(--spot); }
+.digest h2[id^="what-we-don"] + ul { list-style: none; padding: var(--space-sm) var(--space-md); background: var(--sheet); border: 1px solid var(--line); border-radius: var(--radius); }
+.digest h2[id^="what-we-don"] + ul li { padding-left: 1.1rem; text-indent: -1.1rem; }
+.digest h2[id^="what-we-don"] + ul li::before { content: "?"; display: inline-block; width: 1.1rem; text-indent: 0; font-family: var(--display); font-weight: 800; color: var(--spot); }
+.digest h2#a-question-to-take-to-your-neighbors + p { font-weight: 700; font-size: var(--step-2); line-height: 1.25; letter-spacing: -.005em; text-wrap: pretty; }
+.digest .discuss { font-size: var(--step-0); }
+
+/* the lead image */
+.digest figure.lead { margin: 0 0 var(--space-lg); }
+.digest figure.lead img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--code); border: 1px solid var(--line); }
+.digest figure.lead figcaption { font-size: var(--step--1); color: var(--muted); margin-top: var(--space-3xs); }
+
+/* a pull quote: two rules and the words, large */
+.digest figure.pull { margin: var(--space-lg) 0; padding: var(--space-sm) 0 var(--space-xs); border-top: 3px double var(--rule); border-bottom: 1px solid var(--rule); }
+.digest figure.pull blockquote { margin: 0; font-style: italic; color: var(--ink); }
+.digest figure.pull p { font-size: var(--step-2); line-height: 1.28; margin: 0 0 var(--space-xs); text-wrap: balance; }
+.digest figure.pull figcaption { font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: .09em; font-size: .875rem; }
+.digest figure.pull figcaption a { text-decoration: none; color: var(--spot-text); }
+
+/* threads over time: a strip of days per theme */
+.digest figure.trend { margin: 0; }
+.digest .tr { list-style: none; padding: 0; margin: var(--space-sm) 0 0; display: grid; gap: var(--space-2xs); }
+.digest .tr li { margin: 0; display: grid; grid-template-columns: 1fr; gap: .2rem; align-items: center; }
+@media (min-width: 40rem) { .digest .tr li { grid-template-columns: 11.5rem 1fr auto; gap: var(--space-sm); } }
+.digest .tr-theme { font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; font-size: .9375rem; }
+.digest .tr-cells { display: grid; grid-template-columns: repeat(30, 1fr); gap: 2px; max-width: 30rem; }
+.digest .tr-cells i { display: block; aspect-ratio: 1; border-radius: 1px; background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.digest .tr-cells i.l1 { background: color-mix(in oklch, var(--spot) 25%, var(--paper)); box-shadow: none; }
+.digest .tr-cells i.l2 { background: color-mix(in oklch, var(--spot) 50%, var(--paper)); box-shadow: none; }
+.digest .tr-cells i.l3 { background: color-mix(in oklch, var(--spot) 75%, var(--paper)); box-shadow: none; }
+.digest .tr-cells i.l4 { background: var(--spot); box-shadow: none; }
+.digest .tr-cells i.nd { box-shadow: none; background: linear-gradient(var(--line), var(--line)) center / 60% 1px no-repeat; }
+.digest .tr-sum { font-size: var(--step--1); color: var(--ink-2); white-space: nowrap; }
+
+/* the power map */
+.digest .pm { list-style: none; padding: 0; margin: var(--space-sm) 0 0; display: grid; gap: var(--space-md); counter-reset: pm; }
+.digest .pm > li { margin: 0; padding: var(--space-sm) var(--space-md) var(--space-sm); background: var(--sheet); border: 1px solid var(--line); border-radius: var(--radius); counter-increment: pm; }
+.digest .pm h3 { margin: 0 0 var(--space-xs); font-size: var(--step-1); line-height: 1.2; }
+.digest .pm h3::before { content: counter(pm); font-family: var(--display); font-weight: 800; color: var(--spot); margin-right: .45em; }
+.digest .pm dl { display: grid; gap: var(--space-2xs) var(--space-md); margin: 0 0 var(--space-xs); }
+@media (min-width: 40rem) { .digest .pm dl { grid-template-columns: repeat(3, 1fr); } }
+.digest .pm dt { font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: .07em; font-size: .8125rem; color: var(--muted); }
+.digest .pm dd { margin: .1rem 0 0; line-height: 1.4; }
+.digest .pm-dir { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem var(--space-sm); margin: 0 0 var(--space-2xs); padding-top: var(--space-2xs); border-top: 1px solid var(--line); }
+.digest .pm-dir strong { font-family: var(--display); font-weight: 750; text-transform: uppercase; letter-spacing: .07em; font-size: .9375rem; color: var(--spot-text); }
+.digest .pm-scale { display: inline-flex; align-items: center; gap: .5rem; font-family: var(--display); font-weight: 650; text-transform: uppercase; letter-spacing: .06em; font-size: .75rem; color: var(--muted); }
+.digest .pm-track { position: relative; display: inline-block; width: 7rem; height: 2px; background: var(--rule); }
+.digest .pm-track i { position: absolute; top: 50%; width: .8rem; height: .8rem; border-radius: 50%; background: var(--spot); transform: translate(-50%, -50%); }
+.digest .pm-enclosure .pm-track i { left: 0; }
+.digest .pm-contested .pm-track i { left: 50%; background: var(--paper); box-shadow: inset 0 0 0 2px var(--spot); }
+.digest .pm-commons .pm-track i { left: 100%; }
+.digest .pm-ev { margin: var(--space-2xs) 0 0; font-size: .9375rem; }
+.digest .pm-src { margin: .15rem 0 0; font-size: var(--step--1); color: var(--muted); }
+
+/* what the network shared: one square a person, and the story's image */
+.digest ul.network { list-style: none; padding: 0; }
+.digest ul.network > li { margin: 0; padding: var(--space-sm) 0; border-top: 1px solid var(--line); }
+.digest ul.network > li.has-thumb { display: grid; grid-template-columns: 6.5rem 1fr; gap: 0 var(--space-sm); }
+.digest ul.network > li.has-thumb > :not(.thumb) { grid-column: 2; }
+.digest ul.network .thumb { grid-row: 1 / span 2; width: 6.5rem; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--line); background: var(--code); }
+.digest ul.network ul { padding-left: 1.1rem; margin: .3rem 0 0; }
+.digest .theme { font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: .07em; font-size: .75rem; color: var(--muted); border: 1px solid var(--line); padding: 0 .35rem; border-radius: var(--radius); white-space: nowrap; }
+.units { display: flex; flex-wrap: wrap; gap: 3px; margin-top: .3rem; }
+.units i { width: .55rem; height: .55rem; background: var(--spot); border-radius: 1px; }
+.units b { font-family: var(--display); font-weight: 700; font-size: .75rem; color: var(--spot-text); line-height: .55rem; }
+
 /* ---------- /thinking/ and the journal ---------- */
 ul.log { list-style: none; padding: 0; }
 ul.log li { border-top: 1px solid var(--line); padding: var(--space-xs) 0; }

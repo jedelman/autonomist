@@ -365,3 +365,73 @@ test('links: a published digest carries the addresses, and its page shows them a
   assert.ok(html.includes('<a href="https://a.example/rent"'))
 })
 
+
+test('digest, 2026-11-27: themes, each story’s image, the power map, threads over time and the pull quote reach the record; the card gets the image', async () => {
+  const kv = memoryKV()
+  const now = Date.parse('2026-11-27T13:07:00Z')
+  await seed(kv, now)
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 1])
+  // the rent story's page offers a preview image; the land story's offers one that's really a page, so it gets none
+  const base = fetchFake()
+  const f = async (url) => {
+    const u = String(url)
+    if (u === 'https://img.example/rent.jpg') return new Response(JPEG, { headers: { 'content-type': 'image/jpeg' } })
+    if (u === 'https://img.example/land.jpg') return new Response('<html>blocked</html>', { headers: { 'content-type': 'image/jpeg' } })
+    const res = await base(url)
+    if (!/a\.example\/rent|c\.example\/land/.test(u) || u.endsWith('robots.txt')) return res
+    const img = u.includes('rent') ? 'https://img.example/rent.jpg' : 'https://img.example/land.jpg'
+    return new Response((await res.text()).replace('<head>', `<head><meta property="og:image" content="${img}">`), { headers: { 'content-type': 'text/html' } })
+  }
+  const posts = [], puts = [], uploads = []
+  const earlier = { uri: 'at://did:plc:me/org.jason-edelman.autonomist.journal/2026-11-26-x', value: { kind: 'digest', date: '2026-11-26', network: { stories: [{ label: 'Old', theme: 'housing', sharers: 5 }] } } }
+  const api = {
+    session: async () => ({ did: 'did:plc:me' }),
+    call: async (m, nsid, o) => {
+      if (nsid === 'com.atproto.repo.listRecords') return { records: [earlier] }
+      if (nsid === 'com.atproto.repo.putRecord') puts.push(o.body)
+      return { uri: 'at://did:plc:me/log/1' }
+    },
+    post: async (p) => { posts.push(p); return { uri: 'at://did:plc:me/app.bsky.feed.post/d1', cid: 'c' } },
+    uploadBlob: async (bytes, type) => { uploads.push(type); return { $type: 'blob', ref: { $link: `bafkreirent${'x'.repeat(48)}` }, mimeType: type, size: bytes.length } },
+  }
+  let articleTags = ''
+  const model = {
+    structured: async ({ schema, user }) => {
+      if (schema === CLUSTER_SCHEMA) return { data: { stories: [{ label: 'Rent freezes', items: [0, 1, 2], relevance: 3, theme: 'housing' }, { label: 'Farmland sales', items: [4], relevance: 2, theme: 'land and development' }, { label: 'A tenant co-op', items: [3], relevance: 3, theme: 'housing' }] } }
+      if (schema === NOTE_SCHEMA) {
+        const a = Object.values(ARTICLES).find((x) => user.includes(x.title))
+        return { data: { gist: `Notes on ${a.title}.`, quotes: [a.text.match(/“([^”]+)”/)[1]], themes: [] } }
+      }
+      if (schema === DIGEST_SCHEMA) {
+        articleTags = user
+        const tag = (title) => `A${user.split('\n').find((l) => l.includes(title)).match(/- A(\d+)/)[1]}`
+        return { data: { ...draft({ sections: { 'What the network is reading': 'In the last day, 10 accounts that Jason Edelman follows shared 5 links.' } }), power_map: [
+          { thread: 'Rents held still', holds: 'The city council', at_stake: 'Rents in older buildings', bears_cost: 'Landlords and tenants', direction: 'contested', evidence: [{ tag: tag('City council freezes rents'), quote: 'Landlords said the freeze would stall repairs' }] },
+          { thread: 'Farmland as a portfolio', holds: 'Investment funds', at_stake: 'Farmland', bears_cost: 'Towns that farm it', direction: 'toward enclosure', evidence: [{ tag: tag('Farmland bought by investment funds'), quote: 'Land that could feed a town is now a portfolio line' }] },
+          { thread: 'Invented', holds: 'Someone', at_stake: 'Something', bears_cost: 'Others', direction: 'toward the commons', evidence: [{ tag: 'A1', quote: 'a passage that is in no article at all' }] },
+        ] } }
+      }
+      throw new Error('unexpected call')
+    },
+  }
+  const r = await runDigest({ env: { PUBLIC_ORIGIN: 'https://autonomist.jason-edelman.org' }, kv, api, model, day: '2026-11-27', fetch: f, now })
+  assert.ok(r.published, JSON.stringify(r))
+  // the synthesis reads each article by its tag, which the power map's evidence cites
+  assert.match(articleTags, /- A\d+ · /)
+  const rec = puts[0].record
+  assert.deepEqual(rec.network.stories.map((s) => [s.label, s.theme]), [['Rent freezes', 'housing'], ['A tenant co-op', 'housing'], ['Farmland sales', 'land and development']])
+  // the rent story's image is stored; the land story's "image" was a page, so it has none
+  assert.deepEqual(uploads, ['image/jpeg'])
+  assert.equal(rec.network.stories[0].image.from, 'https://img.example/rent.jpg')
+  assert.equal(rec.network.stories[2].image, undefined)
+  // the invented row is dropped; two rows stand
+  assert.deepEqual(rec.analysis.powerMap.map((x) => x.thread), ['Rents held still', 'Farmland as a portfolio'])
+  assert.equal(rec.checks.powerMapPassages, 2)
+  // threads over time: yesterday's digest and today's, by code
+  const housing = rec.network.trend.rows.find((x) => x.theme === 'housing')
+  assert.deepEqual(housing.values.slice(-2), [5, 10])
+  assert.deepEqual(rec.network.trend.covered, ['2026-11-26', '2026-11-27'])
+  assert.ok(rec.pull?.quote && rec.pull.url.startsWith('https://'))
+  // the post's link card carries the lead image
+  assert.equal(posts[0].card.thumb.ref.$link, `bafkreirent${'x'.repeat(48)}`)
+})

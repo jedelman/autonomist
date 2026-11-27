@@ -13,6 +13,7 @@ import { LOG, MEMORY } from './bot/log.js'
 import { ACQUAINTANCE } from './bot/acquaint.js'
 import { DREAM } from './bot/dream.js'
 import { knownHtml, HANDLE, DID } from './known-pages.js'
+import { sniffImage, MAX_IMAGE_BYTES } from './bot/images.js'
 
 export { PDSDurableObject }
 
@@ -24,6 +25,8 @@ export default {
     if (req.method === 'GET' && env.PDS && env.HOSTNAME) {
       if (url.pathname === '/journal/') return journalIndex(req, env, ctx)
       if (url.pathname === '/thinking/') return thinkingPage(req, env, ctx)
+      const img = url.pathname.match(/^\/journal\/img\/(baf[a-z2-7]{20,100})$/)
+      if (img) return journalImage(img[1], env, ctx)
       const k = url.pathname.match(/^\/known\/([^/]{3,253})\/?$/)
       if (k) return knownPage(decodeURIComponent(k[1]).toLowerCase(), req, env, ctx)
       const m = url.pathname.match(/^\/journal\/(\d{4}-\d{2}-\d{2}-[a-z0-9-]{1,80})\/?$/)
@@ -51,6 +54,22 @@ async function handleDid(env, ctx) {
   const did = await agentDid(env, ctx)
   if (!did) return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } })
   return new Response(did, { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*' } })
+}
+
+/**
+ * A digest's image: a blob in autonomist's repository, served from the site's own origin so the CSP stays 'self'.
+ * Only a JPEG, PNG or WebP, by its bytes (never the stored type), up to the size the digest stores.
+ */
+async function journalImage(cid, env, ctx) {
+  const missing = () => withSecurity(new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=300' } }))
+  const did = await agentDid(env, ctx)
+  if (!did) return missing()
+  const res = await fromPds(env, ctx, `/xrpc/com.atproto.sync.getBlob?did=${did}&cid=${cid}`)
+  if (!res.ok) return missing()
+  const bytes = new Uint8Array(await res.arrayBuffer())
+  const type = bytes.length <= MAX_IMAGE_BYTES ? sniffImage(bytes) : null
+  if (!type) return missing()
+  return withSecurity(new Response(bytes, { headers: { 'Content-Type': type, 'Cache-Control': 'public, max-age=31536000, immutable' } }))
 }
 
 async function journalEntry(slug, req, env, ctx, notFound) {

@@ -53,6 +53,14 @@ export function htmlToText(html) {
 }
 
 /** An article page's readable text (its long paragraphs) and what the page says about itself. */
+/** The preview image a page offers for link cards, as an absolute https address, or ''. */
+function imageUrl(src, base) {
+  try {
+    const u = new URL(String(src || '').trim(), base || undefined)
+    return u.protocol === 'https:' ? u.toString() : ''
+  } catch { return '' }
+}
+
 export function readArticle(html, url) {
   const s = String(html)
   const meta = (name) => {
@@ -79,6 +87,7 @@ export function readArticle(html, url) {
     url,
     title: meta('og:title') || ld.headline || (s.match(/<title>([^<]*)<\/title>/i)?.[1] ?? '').trim(),
     description: meta('og:description') || meta('description'),
+    image: imageUrl(meta('og:image:secure_url') || meta('og:image') || meta('og:image:url') || meta('twitter:image') || meta('twitter:image:src'), url),
     siteName: meta('og:site_name') || (url ? new URL(url).hostname.replace(/^www\./, '') : ''),
     published: String(ld.datePublished || meta('article:published_time') || '').slice(0, 10),
     authors: authors.length ? authors : [meta('author')].filter(Boolean),

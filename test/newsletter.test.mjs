@@ -206,7 +206,8 @@ test('a published digest queues its record for the newsletter, once, with its at
 })
 
 async function queued(kv, day = '2026-11-25') {
-  await kv.put(queueKey(day), JSON.stringify({ slug: `${day}-rents`, url: 'u', uri: 'at://x', record: { ...RECORD, date: day } }))
+  // the 2026-11-27 title, whose broadcast name ran past Resend's 70 characters
+  await kv.put(queueKey(day), JSON.stringify({ slug: `${day}-rents`, url: 'u', uri: 'at://x', record: { ...RECORD, title: 'Who checks the official account when public systems step back', date: day } }))
 }
 
 test('sending: one broadcast per digest, as a draft first, sent only while it is still a draft, each key written once', async () => {
@@ -228,6 +229,8 @@ test('sending: one broadcast per digest, as a draft first, sent only while it is
   assert.equal(b.from, 'autonomist <digest@example.org>')
   assert.ok(b.html.includes(UNSUBSCRIBE) && b.text.includes(UNSUBSCRIBE))
   assert.ok(!('send' in b), 'created as a draft')
+  // Resend refuses a broadcast name over 70 characters (the 2026-11-27 first send failed on it)
+  assert.ok(b.name.length <= 70, b.name)
   assert.equal(await e.KV.get('newsletter:sent:2026-11-25-rents'), 'sent')
   // the queue's delete came too soon after its write (KV's limit) and is left for the next run, which finds it sent
   e.KV.clock.t += 60 * 60_000

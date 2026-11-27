@@ -361,9 +361,10 @@ async function sendQueued({ env, kv, now, f, day, q }) {
   await kv.put(thisHour, '1', { expirationTtl: 7 * 86400 })
   let id = await kv.get(draftKey)
   if (!id) {
-    // the digest's post is usually up by now (announced in the same run, before this step)
+    // the digest's post is usually up by now (announced in the same run, before this step). The name is internal to
+    // Resend, which refuses one over 70 characters (the first send, 2026-11-27, failed on it).
     const mail = digestEmail({ ...q.record, slug }, { origin: originOf(env), uri: q.uri, post: await kv.get(postKey(slug)) })
-    const r = await resend(env, 'POST', '/broadcasts', { segment_id: env.RESEND_SEGMENT_ID, from: env.NEWSLETTER_FROM, name: `Digest ${q.record.date}: ${mail.subject}`.slice(0, 200), ...mail }, { fetch: f })
+    const r = await resend(env, 'POST', '/broadcasts', { segment_id: env.RESEND_SEGMENT_ID, from: env.NEWSLETTER_FROM, name: `Digest ${q.record.date}: ${mail.subject}`.slice(0, 70), ...mail }, { fetch: f })
     if (!r.ok || !r.data?.id) throw fail('create', r)
     id = r.data.id
     await kv.put(draftKey, id, { expirationTtl: 7 * 86400 })

@@ -52,7 +52,7 @@ Liking it opts you in; unliking it ends everything below within the hour.
 
 ### Thinking in public
 
-Every conversation ends with a short reflection in its run journal. Every hour it folds them into a community memory it reads before it speaks, and once a day it dreams over everything since the last dream. All of it is on its [Thinking](/thinking/) page and in its own repository, and it's about conversations, never people: no names, handles, quotes or figures.
+Every conversation ends with a short reflection in its run journal. Every hour it folds them into a community memory it reads before it speaks, and once a day it dreams over everything since the last dream, including the open threads the shared wiki's morning briefing lists for it from its public records. All of it is on its [Thinking](/thinking/) page and in its own repository, and it's about conversations, never people: no names, handles, quotes or figures.
 
 ## The digest by email
 

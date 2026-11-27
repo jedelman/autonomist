@@ -39,6 +39,20 @@ export function normalize(s) {
 }
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“', mdash: '—', ndash: '–', hellip: '…', euro: '€' }
+/**
+ * A fetched page's text in the character set it declares (the Content-Type header, else a <meta charset> near the top),
+ * UTF-8 when it declares none or one the runtime doesn't know. Read as UTF-8 regardless, a Latin-1 page's accents
+ * came out as "\ufffd" (El Mundo, 2026-11-27).
+ */
+export async function pageText(res, max = 3_000_000) {
+  const bytes = new Uint8Array(await res.arrayBuffer())
+  const head = new TextDecoder('windows-1252').decode(bytes.subarray(0, 4096))
+  const declared = (res.headers.get('content-type') || '').match(/charset=["']?([\w.:-]+)/i)?.[1] || head.match(/<meta[^>]+charset=["']?([\w.:-]+)/i)?.[1] || 'utf-8'
+  let decoder
+  try { decoder = new TextDecoder(declared.toLowerCase()) } catch { decoder = new TextDecoder('utf-8') }
+  return decoder.decode(bytes.subarray(0, max * 2)).slice(0, max)
+}
+
 export const decodeEntities = (s) => String(s)
   .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
   .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
@@ -52,7 +66,6 @@ export function htmlToText(html) {
     .replace(/<[^>]+>/g, ' '))
 }
 
-/** An article page's readable text (its long paragraphs) and what the page says about itself. */
 /** The preview image a page offers for link cards, as an absolute https address, or ''. */
 function imageUrl(src, base) {
   try {
@@ -61,6 +74,16 @@ function imageUrl(src, base) {
   } catch { return '' }
 }
 
+/** A headline without the site's name tacked on the end ("Data centers' power use is soaring · Source New Mexico"). */
+export function withoutSiteName(title, site) {
+  const t = String(title || '').trim()
+  const name = String(site || '').trim()
+  if (!name || t.length <= name.length + 3) return t
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return t.replace(new RegExp(`\\s+[|·•\\-–—:]\\s+${esc}\\s*$`, 'i'), '').trim() || t
+}
+
+/** An article page's readable text (its long paragraphs) and what the page says about itself. */
 export function readArticle(html, url) {
   const s = String(html)
   const meta = (name) => {
@@ -85,7 +108,7 @@ export function readArticle(html, url) {
   const text = paras.join('\n\n')
   return {
     url,
-    title: meta('og:title') || ld.headline || (s.match(/<title>([^<]*)<\/title>/i)?.[1] ?? '').trim(),
+    title: withoutSiteName(meta('og:title') || ld.headline || (s.match(/<title>([^<]*)<\/title>/i)?.[1] ?? '').trim(), meta('og:site_name')),
     description: meta('og:description') || meta('description'),
     image: imageUrl(meta('og:image:secure_url') || meta('og:image') || meta('og:image:url') || meta('twitter:image') || meta('twitter:image:src'), url),
     siteName: meta('og:site_name') || (url ? new URL(url).hostname.replace(/^www\./, '') : ''),

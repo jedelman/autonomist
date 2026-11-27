@@ -231,7 +231,11 @@ agent on Claude Haiku 5.5. Jason Edelman's project, a sibling of Siren (`jedelma
     again later). Stored as `org.jason-edelman.autonomist.dream`, shown on `/thinking/`, and folded into the memory at
     the next fold (`bot:dream:unfolded`). No dream on a day with nothing new. It sees counts of everything since it began
     as well as since the last dream, its most recent journal entries, and a brief from code that says when little
-    happened (then it writes under two hundred words).
+    happened (then it writes under two hundred words). It also reads its own section of the Agency's morning briefing (`bot/briefing.js`; Jason accepted the terms
+    2026-11-27: "autonomist sees its section in its daily dream, as data", nudges only in the "reflect" class): the wiki
+    note `morning-briefing`, written at 06:17 UTC by the Agency's code from autonomist's public records (its checks still
+    open, its last dream's questions, wiki writes not yet showing). Only the note by `BRIEFING_AUTHOR` in its own latest
+    revision, dated today or yesterday; labelled in the prompt as data, never a task.
   - **Watching live** (Jason, 2026-11-23: "I wonder if we could even use Jetstream to watch it in realtime").
     `/thinking/` has a live view (`site/js/live.js`): on a click, the visitor's browser opens a WebSocket to Bluesky's
     public Jetstream, filtered to autonomist's DID and its collections, and renders each new record with

@@ -124,3 +124,17 @@ test('dry run: a request is taken once, and the scheduled dry digest runs once a
   assert.ok(s1.scheduled)
   assert.deepEqual(await scheduledDry({ env: {}, kv, api, model, what: 'notes', now }), { skipped: 'already dry-run today' })
 })
+
+test('a dry run on a day already published writes a fresh digest, never "resumes" the real pending record (2026-11-27)', async () => {
+  const kv = memoryKV()
+  // the real day: done, and the pending record a publish leaves behind (its delete came too soon after its write)
+  await kv.put('journal:done:2026-11-27', 'real-slug')
+  await kv.put('journal:pending:2026-11-27', JSON.stringify({ slug: 'real-slug', record: { title: 'Real' } }))
+  const d = dryKV(kv)
+  assert.equal(await d.get('journal:done:2026-11-27'), null)
+  assert.equal(await d.get('journal:pending:2026-11-27'), null)
+  // the real pipeline clears the leftover on a later run, once the day is done
+  const { runDigest } = await import('../worker/bot/digest.js')
+  await runDigest({ env: {}, kv, api: { session: async () => ({ did: 'did:plc:me' }), call: async () => ({}) }, model: {}, day: '2026-11-27' })
+  assert.equal(await kv.get('journal:pending:2026-11-27'), null)
+})

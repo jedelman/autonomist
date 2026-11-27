@@ -42,9 +42,10 @@ test('sweep: one write per link a run, however many share it; quotable posts kep
   assert.equal(await kv.get(await quoteKey('https://only-strangers.example/x')), null)
 })
 
+const STORY_CID = `bafkreiland${'z'.repeat(48)}`
 const ARTICLE = { url: 'https://c.example/land', title: 'Farmland bought by investment funds', outlet: 'c.example', gist: 'g', quotes: [], text: 'Investment funds bought more farmland this year. The state has seen it before.' }
 async function day(kv) {
-  const story = (label, a) => ({ label, sharers: 3, articles: [a] })
+  const story = (label, a) => ({ label, sharers: 3, articles: [a], ...(a === ARTICLE ? { image: { blob: { $type: 'blob', ref: { $link: STORY_CID }, mimeType: 'image/jpeg', size: 9 }, article: ARTICLE.url } } : {}) })
   await kv.put('digest:day:2026-11-25', JSON.stringify({ block: '', stories: [story('Rent freezes', { ...ARTICLE, url: 'https://a.example/rent' }), story('Farmland sales', ARTICLE), story('A tenant co-op', { ...ARTICLE, url: 'https://d.example/coop' })] }))
 }
 const answer = () => ({ framing: 'Investment funds bought more farmland this year, the reporting says.', question: 'Who owns the land around where you live?', reflection: '', themes: [] })
@@ -66,6 +67,8 @@ test('feed questions quote a publisher\'s or an opted-in person\'s post of the s
     } else {
       assert.equal(posts[0].quote, undefined, 'someone who unliked is never quoted')
       assert.equal(posts[0].card.uri, ARTICLE.url)
+      // the card carries the story's image, the one the digest stored for this very article
+      assert.equal(posts[0].card.thumb.ref.$link, STORY_CID)
     }
     // the slot's claim and the post's address are separate keys
     assert.equal(await kv.get('question:2026-11-25:16'), 'pending')

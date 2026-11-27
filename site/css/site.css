@@ -148,6 +148,9 @@ th { font-family: var(--display); font-weight: 700; text-transform: uppercase; l
 .cards a { font-family: var(--display); font-weight: 750; font-size: 1.5rem; line-height: 1.1; text-decoration: none; color: var(--ink); }
 .cards a:hover { color: var(--spot-text); }
 .cards p { margin: var(--space-3xs) 0 0; color: var(--muted); }
+.cards li.has-thumb { display: grid; grid-template-columns: 1fr 6.5rem; gap: 0 var(--space-md); }
+.cards li.has-thumb > :not(.thumb) { grid-column: 1; }
+.cards .thumb { grid-column: 2; grid-row: 1 / span 2; width: 6.5rem; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--line); background: var(--code); }
 
 /* a notice: a full rule all round, tinted, never a stripe down one side */
 .note { background: color-mix(in oklch, var(--warn) 9%, var(--paper)); border: 1px solid color-mix(in oklch, var(--warn) 45%, var(--paper)); border-radius: var(--radius); padding: var(--space-xs) var(--space-sm); margin: var(--space-sm) 0; font-size: .9375rem; }

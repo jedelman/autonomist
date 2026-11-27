@@ -293,7 +293,12 @@ function digestMessage({ block, stories, articles, used }) {
  */
 export async function runDigest({ env, kv, api, model, day, fetch: f = fetch, now = Date.now(), deadline = Date.now() + 11 * 60_000 }) {
   const done = await kv.get(`journal:done:${day}`)
-  if (done) return { ...(await announce({ kv, api, day })), published: done }
+  if (done) {
+    // finishPublish deletes the pending record moments after writing it, which KV refuses (one write a second per key),
+    // so it's cleared here, on a later run, once the day is done
+    if (await kv.get(`journal:pending:${day}`)) await kv.delete(`journal:pending:${day}`).catch(() => {})
+    return { ...(await announce({ kv, api, day })), published: done }
+  }
   // a run killed between storing the record and marking the day done left its record here: store that same record
   // (the same key, so nothing is doubled) and finish, rather than writing a second digest
   const pending = await kv.get(`journal:pending:${day}`, 'json')
@@ -359,9 +364,10 @@ export async function runDigest({ env, kv, api, model, day, fetch: f = fetch, no
     const all = { title: '', url: '', text: articles.map((a) => `${a.title}\n${a.text}`).join('\n\n') }
     const outlets = [...new Set(articles.map((a) => siteOf(a.url)).filter(Boolean))]
     const claims = Date.now() < deadline - 4 * 60_000 ? await checkClaims({ env, kv, model, day, draft, article: all, exclude: outlets, fetch: f }) : []
-    await kv.put(`digest:day:${day}`, JSON.stringify({ block, stories: stories.map((s) => ({ label: s.label, sharers: s.sharers, articles: s.articles.map((a) => ({ url: a.url, title: a.title, outlet: a.outlet, gist: a.gist, quotes: a.quotes, text: a.text })) })) }), { expirationTtl: 2 * 86400 })
     // each story's image (the publisher's own preview image, where allowed), stored in autonomist's repository
     if (Date.now() < deadline - 3 * 60_000) await storeImages({ api, stories, fetch: f, limit: setting(env.BOT_DIGEST_IMAGES, 6, { min: 0, max: 12 }) }).catch(() => 0)
+    // the day's stories for the feed questions, with each story's image, so a question's link card can carry it
+    await kv.put(`digest:day:${day}`, JSON.stringify({ block, stories: stories.map((s) => ({ label: s.label, sharers: s.sharers, ...(s.image ? { image: { blob: s.image.blob, article: s.image.article } } : {}), articles: s.articles.map((a) => ({ url: a.url, title: a.title, outlet: a.outlet, gist: a.gist, quotes: a.quotes, text: a.text })) })) }), { expirationTtl: 2 * 86400 })
     // threads over time, counted by code from today's stories and the digests before it
     const me = await api.session().then((x) => x.did).catch(() => null)
     const earlier = me ? await earlierDigests(api, me, COLLECTION, { day }).catch(() => []) : []

@@ -8,7 +8,7 @@
 // 3. A separate structured call says whether each kept excerpt supports, contradicts or doesn't settle the claim.
 // 4. Code gives the verdict: confirmed (two independent sites support it, none contradicts), supported (one),
 //    disputed (any verified contradiction), unsettled (verified sources, none decisive), unverified (none kept).
-import { fetchReadable, htmlToText, normalize, hasControlChars } from '../journal-core.js'
+import { fetchReadable, htmlToText, normalize, hasControlChars, pageText } from '../journal-core.js'
 import { setting } from '../limits.js'
 import { obj } from './model.js'
 
@@ -82,14 +82,14 @@ export function citationsOf(content) {
  * first fifteen words, compared after normalizing. Returns that span in the excerpt's own words, so only what was
  * verified is ever kept or shown, or null when fewer than six words match.
  */
-export function onPage(quote, pageText) {
+export function onPage(quote, page) {
   const parts = String(quote).split(/\.\.\.|…/)
   const tokens = parts[0].trim().split(/\s+/).filter(Boolean)
   if (tokens.length < 6) return null
   for (const n of [tokens.length, 15]) {
     if (n > tokens.length) continue
     const span = tokens.slice(0, n).join(' ')
-    if (pageText.includes(normalize(span))) return n < tokens.length || parts.length > 1 ? `${span} …` : span
+    if (page.includes(normalize(span))) return n < tokens.length || parts.length > 1 ? `${span} …` : span
   }
   return null
 }
@@ -145,7 +145,7 @@ export async function factCheck({ env, kv, model, day, claim, exclude = [], sour
       const site = siteOf(at)
       if (!site || skip.includes(site)) return null
       if (!res.ok || !/html|text\/plain/i.test(res.headers.get('content-type') || '')) return null
-      const page = normalize(htmlToText((await res.text()).slice(0, 3_000_000)))
+      const page = normalize(htmlToText(await pageText(res)))
       const quote = c.quotes.map((q) => onPage(q, page)).find(Boolean)
       return quote ? { url: at, title: c.title.slice(0, 200), site, quote: quote.slice(0, 600) } : null
     } catch { return null /* closed, unreachable or not a page: it doesn't count */ }

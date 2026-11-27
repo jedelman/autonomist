@@ -9,7 +9,7 @@
 //   content/model/*.md        technical papers; model/results.md is published as /model/results/
 //   content/case-studies/*.md case studies (each reviewed before it is added)
 //   content/journal/*.md      the news journal: commentary on what autonomist reads (checked by scripts/journal-check.mjs)
-//   site/css, site/js, site/fonts (OFL), site/favicon.svg, and model/lec-core.cjs (as /js/lec-core.js)
+//   site/css, site/js, site/fonts (OFL), site/email (the email's nameplate), site/favicon.svg, and model/lec-core.cjs (as /js/lec-core.js)
 // Also writes public/content-index.json, which the agent reads to cite what is published.
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync, copyFileSync, existsSync } from 'node:fs'
 import { join, dirname, relative } from 'node:path'
@@ -72,6 +72,7 @@ mkdirSync(out, { recursive: true })
 copyDir(join(root, 'site/css'), join(out, 'css'))
 copyDir(join(root, 'site/js'), join(out, 'js'))
 copyDir(join(root, 'site/fonts'), join(out, 'fonts'))
+copyDir(join(root, 'site/email'), join(out, 'email'))
 copyFileSync(join(root, 'model/lec-core.cjs'), join(out, 'js/lec-core.js'))
 copyFileSync(join(root, 'site/favicon.svg'), join(out, 'favicon.svg'))
 

@@ -64,8 +64,10 @@ test('the email: the page’s own words, inline styles, a text part, one unsubsc
 })
 
 test('styleEmail keeps attributes, drops classes and ids, and mutes what the page mutes', () => {
-  assert.equal(styleEmail('<a href="https://x.example" rel="noopener">x</a>'), '<a href="https://x.example" rel="noopener" style="color:#1f5f8b;text-decoration:underline">x</a>')
-  assert.match(styleEmail('<p class="muted" id="a">m</p>'), /^<p style="margin:0 0 14px;color:#6b675e;font-size:14px">m<\/p>$/)
+  // the broadsheet's inks: links in ink, underlined in vermilion
+  assert.equal(styleEmail('<a href="https://x.example" rel="noopener">x</a>'), '<a href="https://x.example" rel="noopener" style="color:#261b16;text-decoration:underline;text-decoration-color:#d73d1f">x</a>')
+  assert.match(styleEmail('<p class="muted" id="a">m</p>'), /^<p style="margin:0 0 15px;color:#63554d;font-size:14px">m<\/p>$/)
+  assert.match(styleEmail('<p class="q">Who owns it?</p>'), /^<p style="margin:0 0 15px;font-family:Georgia[^"]*font-size:23px[^"]*">Who owns it\?<\/p>$/)
   assert.equal(styleEmail('<strong>b</strong>'), '<strong>b</strong>')
   assert.equal(plainText('## Head\n\n**b** and *i* and [l](https://u.example)'), 'HEAD\n\nb and i and l (https://u.example)')
 })

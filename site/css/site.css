@@ -137,6 +137,11 @@ th { font-family: var(--display); font-weight: 700; text-transform: uppercase; l
 .bad { color: var(--bad); }
 .kicker, .label { font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: .09em; font-size: .9375rem; line-height: 1.2; color: var(--spot-text); margin: 0 0 var(--space-xs); }
 
+/* a page's contents, as a row of section names between rules */
+.toc { display: flex; flex-wrap: wrap; gap: .3rem 1.25rem; padding: var(--space-2xs) 0; margin: var(--space-md) 0 var(--space-lg); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--line); }
+.toc a { font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: .07em; font-size: .9375rem; text-decoration: none; color: var(--ink-2); }
+.toc a:hover { color: var(--spot-text); }
+
 /* a list of things to open: ruled rows, not boxes */
 .cards { list-style: none; padding: 0; margin: var(--space-md) 0 var(--space-xl); border-top: 1px solid var(--rule); }
 .cards li { margin: 0; padding: var(--space-sm) 0; border-bottom: 1px solid var(--line); }

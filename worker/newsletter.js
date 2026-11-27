@@ -45,29 +45,46 @@ const fail = (what, r) => new Error(`${what}: Resend ${r.status}${r.data?.name ?
 
 // Email clients drop stylesheets, so the digest's HTML gets its styles inline, tag by tag. The input is always this
 // module's own escaped markup (md.js and journal-pages.js), so a tag's attributes never hold a raw ">".
-const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+// The look is the site's broadsheet (.impeccable.md): ink on newsprint, vermilion for what to act on. No web fonts
+// (Gmail and most clients ignore them): the nameplate is an image from the site, set in the site's face, and the text
+// falls back to faces mail clients have. The site keeps no request logs, so nothing it serves counts who opens one.
+export const INK = { paper: '#f9f3ea', sheet: '#fdfaf4', ink: '#261b16', ink2: '#41352f', muted: '#63554d', line: '#d5c8bc', spot: '#d73d1f', spotText: '#b82b19', wash: '#fdd4c6' }
+const FONT = "Georgia, 'Times New Roman', serif"
+const DISPLAY = "'Big Shoulders', 'Arial Narrow', 'Roboto Condensed', 'Helvetica Neue', Arial, sans-serif"
+const LABEL = `font-family:${DISPLAY};font-weight:700;font-size:13px;line-height:1.2;letter-spacing:1.6px;text-transform:uppercase;color:${INK.spotText}`
 const STYLE = {
-  h1: `font-family:${FONT};font-size:26px;line-height:1.25;margin:8px 0 6px;color:#1d1d1b`,
-  h2: `font-family:${FONT};font-size:19px;line-height:1.3;margin:28px 0 8px;color:#1d1d1b`,
-  h3: `font-family:${FONT};font-size:16px;line-height:1.3;margin:20px 0 6px;color:#1d1d1b`,
-  p: 'margin:0 0 14px',
-  ul: 'margin:0 0 14px;padding-left:22px',
-  ol: 'margin:0 0 14px;padding-left:22px',
-  li: 'margin:0 0 6px',
-  blockquote: 'margin:0 0 14px;padding:2px 0 2px 14px;border-left:3px solid #c9c4b8;color:#4a4842',
-  a: 'color:#1f5f8b;text-decoration:underline',
-  code: "font-family:Menlo,Consolas,monospace;font-size:14px;background:#f1eee6;padding:1px 4px;border-radius:3px",
-  pre: 'white-space:pre-wrap;margin:0 0 14px',
-  muted: 'color:#6b675e;font-size:14px',
+  h1: `font-family:${FONT};font-weight:700;font-size:30px;line-height:1.15;margin:6px 0 14px;color:${INK.ink}`,
+  h2: `${LABEL};margin:34px 0 12px;padding-top:12px;border-top:1px solid ${INK.ink}`,
+  h3: `font-family:${FONT};font-weight:700;font-size:17px;line-height:1.3;margin:20px 0 6px;color:${INK.ink}`,
+  p: 'margin:0 0 15px',
+  ul: 'margin:0 0 15px;padding-left:22px',
+  ol: 'margin:0 0 15px;padding-left:22px',
+  li: 'margin:0 0 7px',
+  blockquote: `margin:0 0 15px 20px;padding:0;font-style:italic;color:${INK.ink2}`,
+  a: `color:${INK.ink};text-decoration:underline;text-decoration-color:${INK.spot}`,
+  code: `font-family:Menlo,Consolas,monospace;font-size:13px;background:${INK.paper};padding:1px 4px;word-break:break-all`,
+  pre: 'white-space:pre-wrap;margin:0 0 15px',
+}
+// a few classes the renderers use, styled inline too
+const CLASS = {
+  muted: `color:${INK.muted};font-size:14px`,
+  verdict: `color:${INK.muted};font-size:14px`,
+  kicker: `${LABEL};margin:0 0 6px`,
+  q: `font-family:${FONT};font-weight:700;font-size:23px;line-height:1.3;color:${INK.ink}`,
+  discuss: `font-weight:700`,
 }
 export function styleEmail(html) {
   return String(html).replace(/<(h1|h2|h3|p|ul|ol|li|blockquote|a|code|pre|span|em)\b([^>]*)>/g, (_, tag, attrs) => {
-    const muted = /\sclass="[^"]*\b(muted|verdict)\b[^"]*"/.test(attrs)
+    const classes = (attrs.match(/\sclass="([^"]*)"/)?.[1] || '').split(/\s+/).filter((c) => CLASS[c])
     const rest = attrs.replace(/\s(class|id)="[^"]*"/g, '')
-    const style = [STYLE[tag], muted ? STYLE.muted : ''].filter(Boolean).join(';')
+    const style = [STYLE[tag], ...classes.map((c) => CLASS[c])].filter(Boolean).join(';')
     return style ? `<${tag}${rest} style="${style}">` : `<${tag}${rest}>`
   })
 }
+
+/** The masthead every email opens with: the band, then the nameplate over a double rule. */
+const masthead = (origin) => `<div style="background:${INK.ink};color:#f0eae2;font-family:${DISPLAY};font-weight:600;font-size:11px;letter-spacing:1.4px;text-transform:uppercase;text-align:center;padding:8px 12px">A public-interest project. Not a company, and it sells nothing.</div>
+<div style="padding:22px 22px 0"><a href="${esc(origin)}/" style="display:block;text-decoration:none;padding-bottom:10px;border-bottom:3px double ${INK.ink}"><img src="${esc(origin)}/email/nameplate.png" width="596" alt="autonomist" style="display:block;width:100%;max-width:596px;height:auto;border:0;font-family:${DISPLAY};font-weight:800;font-size:48px;line-height:1;color:${INK.ink}"></a></div>`
 
 // Resend reads {{...}} in a broadcast as a template tag. Nothing from an article or the model may become one.
 // A zero-width space after every brace that's followed by another one, so no run of braces survives.
@@ -101,30 +118,36 @@ export function digestEmail(rec, { origin = ORIGIN, uri = '', post = null, unsub
   const allowLink = (u) => sources.includes(u) || u.startsWith(`${PE}/`) || u.startsWith(`${origin}/`)
   const net = rec.network || {}
   const stories = (net.stories || []).length
-  const byline = `autonomist's daily digest · ${esc(rec.date)} · from ${num(net.read)} article${Number(net.read) === 1 ? '' : 's'} across ${num(stories)} ${stories === 1 ? 'story' : 'stories'}`
+  const byline = `The daily digest · ${esc(rec.date)} · from ${num(net.read)} article${Number(net.read) === 1 ? '' : 's'} across ${num(stories)} ${stories === 1 ? 'story' : 'stories'}`
   const body = render(clean(rec.body), { allowLink, headingIds: false })
   const checked = checkedHtml(rec.checks?.claims, rec.checks, { digest: true })
   const footer = `<p class="muted">Written by autonomist, an AI (Claude, by Anthropic), on ${esc(rec.date)}. Before it was published, code checked every quotation and every figure against the articles it read, the Power Explained pages it cites, and its own counts. It's also on the web, with everything above: <a href="${esc(url)}">${esc(url)}</a>${uri ? `, and stored in autonomist's own atproto repository as <code>${esc(uri)}</code>` : ''}.</p>
 <p class="muted">${thread ? `To talk it over, <a href="${esc(thread)}">reply under autonomist's post of its question</a> on Bluesky` : `To talk about it, reply to autonomist on Bluesky (<a href="https://bsky.app/profile/autonomist.jason-edelman.org">@autonomist.jason-edelman.org</a>)`}, where its conversations are public.</p>
 <p class="muted">autonomist is a public-interest project of Jason Edelman. It sells nothing. Nothing here is investment, financial, legal or tax advice, or an offer of securities; autonomist holds no money and signs nothing for anyone.</p>
 <p class="muted">You're getting this because you signed up at <a href="${esc(origin)}/newsletter/">${esc(origin.replace(/^https?:\/\//, ''))}/newsletter/</a> and confirmed. <a href="${mark}">Unsubscribe</a> at any time, in one click.</p>`
-  const inner = styleEmail(`<p class="muted">${byline}</p>
+  // the day's question, set large like the site's
+  const bodyHtml = body.replace(/(<h2>A question to take to your neighbors<\/h2>\s*)<p>/, '$1<p class="q">')
+  const inner = styleEmail(`<p class="kicker">${byline}</p>
 <h1>${esc(rec.title)}</h1>
-${body}
+${bodyHtml}
 ${networkHtml(net)}${checked}<hr>
-${footer}`).replace(/<hr>/g, '<hr style="border:0;border-top:1px solid #dcd7cb;margin:28px 0 18px">')
+${footer}`).replace(/<hr>/g, `<hr style="border:0;border-top:3px double ${INK.ink};margin:32px 0 18px">`)
   const html = noTags(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
 <title>${esc(rec.title)}</title>
 </head>
-<body style="margin:0;padding:0;background:#f6f4ee">
+<body style="margin:0;padding:0;background:${INK.paper}">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">${esc(clean(rec.summary || ''))}</div>
-<div style="max-width:620px;margin:0 auto;padding:24px 18px 32px;background:#ffffff;font-family:${FONT};font-size:16px;line-height:1.55;color:#1d1d1b">
+<div style="max-width:640px;margin:0 auto;background:${INK.sheet}">
+${masthead(origin)}
+<div style="padding:18px 22px 32px;font-family:${FONT};font-size:17px;line-height:1.6;color:${INK.ink}">
 ${inner}
+</div>
 </div>
 </body>
 </html>`).replaceAll(mark, esc(unsubscribe))
@@ -164,13 +187,16 @@ ${link}
 If it wasn't you, ignore this email. Nothing more will be sent, and the request is forgotten in two days.
 
 autonomist is a public-interest project of Jason Edelman: an AI that reads what a network of people shares and writes a daily digest of the common threads. It sells nothing. ${origin}/journal/`
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Confirm your subscription</title></head>
-<body style="margin:0;padding:0;background:#f6f4ee"><div style="max-width:560px;margin:0 auto;padding:24px 18px;background:#ffffff;font-family:${FONT};font-size:16px;line-height:1.55;color:#1d1d1b">
-<p style="margin:0 0 14px">Someone, probably you, asked to get autonomist's daily digest at this address.</p>
-<p style="margin:0 0 14px"><a href="${esc(link)}" style="color:#1f5f8b;text-decoration:underline">Open this link and press Confirm</a> to start getting it.</p>
-<p style="margin:0 0 14px">If it wasn't you, ignore this email. Nothing more will be sent, and the request is forgotten in two days.</p>
-<p style="${STYLE.muted};margin:24px 0 0">autonomist is a public-interest project of Jason Edelman: an AI that reads what a network of people shares and writes a <a href="${esc(origin)}/journal/" style="${STYLE.a}">daily digest</a> of the common threads. It sells nothing.</p>
-</div></body></html>`
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>Confirm your subscription</title></head>
+<body style="margin:0;padding:0;background:${INK.paper}"><div style="max-width:560px;margin:0 auto;background:${INK.sheet}">
+${masthead(origin)}
+<div style="padding:22px 22px 28px;font-family:${FONT};font-size:17px;line-height:1.6;color:${INK.ink}">
+<p style="${CLASS.kicker}">The daily digest</p>
+<p style="margin:0 0 15px">Someone, probably you, asked to get autonomist's daily digest at this address.</p>
+<p style="margin:22px 0"><a href="${esc(link)}" style="display:inline-block;font-family:${DISPLAY};font-weight:700;font-size:16px;letter-spacing:1.4px;text-transform:uppercase;color:${INK.sheet};background:${INK.spotText};text-decoration:none;padding:12px 18px">Confirm on the page &rarr;</a></p>
+<p style="margin:0 0 15px">The link opens a page with a Confirm button; press it to start getting the digest. If it wasn't you, ignore this email. Nothing more will be sent, and the request is forgotten in two days.</p>
+<p style="${CLASS.muted};margin:24px 0 0;padding-top:12px;border-top:3px double ${INK.ink}">autonomist is a public-interest project of Jason Edelman: an AI that reads what a network of people shares and writes a <a href="${esc(origin)}/journal/" style="${STYLE.a}">daily digest</a> of the common threads. It sells nothing.</p>
+</div></div></body></html>`
   return { subject: "Confirm: autonomist's daily digest", html, text }
 }
 

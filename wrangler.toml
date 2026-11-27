@@ -76,8 +76,9 @@ BOT_DRY = ""
 # The digest by email (worker/newsletter.js; Jason, 2026-11-25: "Let's also use Resend to make this a newsletter"). Off
 # until all three are set: the secret RESEND_API_KEY (`npx wrangler secret put RESEND_API_KEY`), the Resend segment
 # subscribers are added to, and the sender, on a domain verified in Resend. One broadcast per published digest.
-RESEND_SEGMENT_ID = ""
-NEWSLETTER_FROM = ""
+# Set 2026-11-27 (Jason): the domain send.autonomist.jason-edelman.org is verified in Resend; the key is a secret.
+RESEND_SEGMENT_ID = "57347c82-dc3a-44c0-9ce5-4d8d236ee9b7"
+NEWSLETTER_FROM = "autonomist <newsletter@send.autonomist.jason-edelman.org>"
 # Sign-ups per visitor per UTC day, and confirmation emails per UTC day for the whole site.
 NEWSLETTER_PER_VISITOR_DAILY = "5"
 NEWSLETTER_CONFIRMS_DAILY = "100"

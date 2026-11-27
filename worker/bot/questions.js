@@ -108,7 +108,9 @@ export async function runQuestion({ env, kv, api, model, day, now = new Date() }
       await kv.put(key, 'pending', { expirationTtl: 3 * 86400 })
       let posted
       try {
-        posted = await api.post(quote ? { text: out, quote } : { text: out, card: { uri: card.url, title: card.title, description: card.gist } })
+        // the card carries the story's image when it's this article's (the digest stored it in autonomist's repository)
+        const thumb = story.image?.article === card.url && story.image?.blob?.ref ? { thumb: story.image.blob } : {}
+        posted = await api.post(quote ? { text: out, quote } : { text: out, card: { uri: card.url, title: card.title, description: card.gist, ...thumb } })
       } catch (e) {
         // a failed post to its own PDS didn't go out: the slot may be tried again (after KV's second)
         await new Promise((ok) => setTimeout(ok, 1100))

@@ -123,11 +123,16 @@ export function listItems(staticItems, records, origin) {
   for (const x of staticItems || []) items.set(x.slug, { slug: x.slug, title: x.title, summary: x.summary, url: x.url })
   for (const r of records || []) {
     const slug = String(r.uri.split('/').pop())
-    if (!items.has(slug)) items.set(slug, { slug, title: r.value?.title, summary: r.value?.kind === 'digest' ? `${r.value?.date} · digest: ${r.value?.summary || ''}` : `${r.value?.date} · on ${r.value?.outlet || ''}: ${r.value?.summary || ''}`, url: `/journal/${slug}/` })
+    // a digest shows its lead story's image beside it, as a paper's contents do
+    const lead = r.value?.kind === 'digest' ? (r.value?.network?.stories || []).find((st) => st?.image)?.image?.blob : null
+    if (!items.has(slug)) items.set(slug, { slug, title: r.value?.title, summary: r.value?.kind === 'digest' ? `${r.value?.date} · digest: ${r.value?.summary || ''}` : `${r.value?.date} · on ${r.value?.outlet || ''}: ${r.value?.summary || ''}`, url: `/journal/${slug}/`, ...(lead ? { image: lead } : {}) })
   }
   return [...items.values()].sort((a, b) => b.slug.localeCompare(a.slug))
 }
 
 export const listHtml = (items) => items.length
-  ? `<ul class="cards">${items.map((x) => `<li><a href="${esc(x.url)}">${esc(x.title)}</a>${x.summary ? `<p>${esc(x.summary)}</p>` : ''}</li>`).join('')}</ul>`
+  ? `<ul class="cards">${items.map((x) => {
+    const img = imageSrc(x.image)
+    return `<li${img ? ' class="has-thumb"' : ''}>${img ? `<img class="thumb" src="${esc(img)}" alt="" loading="lazy" decoding="async" width="104" height="78">` : ''}<a href="${esc(x.url)}">${esc(x.title)}</a>${x.summary ? `<p>${esc(x.summary)}</p>` : ''}</li>`
+  }).join('')}</ul>`
   : '<p class="muted">Nothing here yet.</p>'

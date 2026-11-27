@@ -182,3 +182,14 @@ test('reading: one article under two addresses is read once (2026-11-27 listed a
   // the two addresses are one article: notes are taken once for it (six without the check)
   assert.equal(notes, 5)
 })
+
+test('the journal index: a digest shows its lead story’s image; an entry without one, none', async () => {
+  const { listItems, listHtml } = await import('../worker/journal-pages.js')
+  const items = listItems([], [
+    { uri: 'at://did/c/2026-11-28-d', value: { kind: 'digest', title: 'D', date: '2026-11-28', summary: 'S', network: { stories: [{ label: 'x' }, { label: 'y', image: { blob: { ref: { $link: CID } } } }] } } },
+    { uri: 'at://did/c/2026-11-24-b', value: { title: 'B', date: '2026-11-24', outlet: 'O', summary: 'S' } },
+  ])
+  const html = listHtml(items)
+  assert.ok(html.includes(`<li class="has-thumb"><img class="thumb" src="/journal/img/${CID}"`))
+  assert.equal(html.match(/<img/g).length, 1)
+})
